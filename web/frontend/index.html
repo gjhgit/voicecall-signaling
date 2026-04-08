@@ -521,14 +521,21 @@
         // 添加 TURN 服务器以解决 NAT 穿透问题
         const config = {
             iceServers: [
+                // STUN 服务器
                 { urls: 'stun:stun.l.google.com:19302' },
                 { urls: 'stun:stun1.l.google.com:19302' },
                 { urls: 'stun:stun2.l.google.com:19302' },
                 { urls: 'stun:stun3.l.google.com:19302' },
-                // 免费 TURN 服务器
+                // 免费 TURN 服务器（用于移动网络穿透）
                 { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
-                { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' }
-            ]
+                { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
+                // 备用 TURN 服务器
+                { urls: 'turn:relay.backups.cz', username: 'guest', credential: 'guest' }
+            ],
+            // ICE 传输策略 - 优先使用所有候选对
+            iceTransportPolicy: 'all',
+            // ICE 候选池大小
+            iceCandidatePoolSize: 10
         };
 
         function createPeerConnection(userId, isInitiator) {
@@ -571,6 +578,30 @@
             // 连接状态变化
             pc.onconnectionstatechange = () => {
                 console.log(`连接状态: ${userId} - ${pc.connectionState}`);
+                
+                // 根据连接状态更新UI
+                const userEl = document.getElementById('user-' + userId);
+                if (userEl) {
+                    if (pc.connectionState === 'connected') {
+                        userEl.classList.add('speaking');
+                    } else if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
+                        userEl.classList.remove('speaking');
+                        
+                        // 自动重连（移动网络专用）
+                        setTimeout(() => {
+                            if (pc.connectionState !== 'connected') {
+                                console.log(`尝试重新连接 ${userId}`);
+                                closePeerConnection(userId);
+                                createPeerConnection(userId, true);
+                            }
+                        }, 3000);
+                    }
+                }
+            };
+            
+            // ICE 连接状态
+            pc.oniceconnectionstatechange = () => {
+                console.log(`ICE 状态: ${userId} - ${pc.iceConnectionState}`);
             };
 
             // 发起通话
