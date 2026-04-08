@@ -62,7 +62,13 @@ app.use((req, res, next) => {
 });
 
 // 提供前端页面
-app.use(express.static(path.join(__dirname, '../frontend')));
+const frontendPath = path.join(__dirname, 'public.html');
+if (fs.existsSync(frontendPath)) {
+    app.get('/', (req, res) => res.sendFile(frontendPath));
+    console.log('📄 前端页面已加载: public.html');
+} else {
+    console.log('⚠️  未找到前端页面 public.html');
+}
 
 // 健康检查
 app.get('/health', (req, res) => {
