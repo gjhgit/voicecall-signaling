@@ -1,0 +1,693 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>🎙️ 语音通话</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+            color: white;
+        }
+
+        .container {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 24px;
+            padding: 32px;
+            width: 100%;
+            max-width: 420px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        }
+
+        h1 {
+            text-align: center;
+            font-size: 28px;
+            margin-bottom: 8px;
+        }
+
+        .subtitle {
+            text-align: center;
+            color: #888;
+            margin-bottom: 24px;
+            font-size: 14px;
+        }
+
+        .server-input {
+            margin-bottom: 20px;
+        }
+
+        .server-input label {
+            display: block;
+            margin-bottom: 8px;
+            color: #aaa;
+            font-size: 14px;
+        }
+
+        .server-input input {
+            width: 100%;
+            padding: 12px 16px;
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            font-size: 16px;
+        }
+
+        .server-input input:focus {
+            outline: none;
+            border-color: #4ade80;
+        }
+
+        .form-group {
+            margin-bottom: 16px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #aaa;
+            font-size: 14px;
+        }
+
+        .form-group input {
+            width: 100%;
+            padding: 14px 18px;
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            font-size: 16px;
+            transition: all 0.3s;
+        }
+
+        .form-group input:focus {
+            outline: none;
+            border-color: #4ade80;
+        }
+
+        .btn {
+            width: 100%;
+            padding: 16px;
+            border: none;
+            border-radius: 12px;
+            font-size: 18px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-bottom: 12px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #4ade80 0%, #22c55e 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 20px rgba(74, 222, 128, 0.4);
+        }
+
+        .btn-danger {
+            background: linear-gradient(135deg, #f87171 0%, #ef4444 100%);
+            color: white;
+        }
+
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 12px;
+        }
+
+        .btn-group .btn {
+            flex: 1;
+        }
+
+        .status-bar {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .status-text {
+            font-size: 16px;
+            color: #aaa;
+        }
+
+        .status-text.connected {
+            color: #4ade80;
+        }
+
+        .status-text.error {
+            color: #f87171;
+        }
+
+        .users-list {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 20px;
+        }
+
+        .users-list h3 {
+            font-size: 14px;
+            color: #888;
+            margin-bottom: 12px;
+        }
+
+        .user-item {
+            display: flex;
+            align-items: center;
+            padding: 10px 14px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            margin-bottom: 8px;
+        }
+
+        .user-item.speaking {
+            background: rgba(74, 222, 128, 0.2);
+            border-left: 3px solid #4ade80;
+        }
+
+        .user-avatar {
+            width: 36px;
+            height: 36px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-right: 12px;
+            font-size: 18px;
+        }
+
+        .user-name {
+            flex: 1;
+            font-size: 15px;
+        }
+
+        .user-status {
+            font-size: 12px;
+            color: #888;
+        }
+
+        .call-controls {
+            display: none;
+        }
+
+        .call-controls.active {
+            display: block;
+        }
+
+        .mic-indicator {
+            width: 12px;
+            height: 12px;
+            background: #4ade80;
+            border-radius: 50%;
+            animation: pulse 1.5s infinite;
+        }
+
+        .mic-indicator.muted {
+            background: #f87171;
+            animation: none;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .join-form {
+            display: block;
+        }
+
+        .join-form.hidden {
+            display: none;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        .hint {
+            text-align: center;
+            color: #666;
+            font-size: 12px;
+            margin-top: 20px;
+        }
+
+        .connection-info {
+            background: rgba(74, 222, 128, 0.1);
+            border: 1px solid rgba(74, 222, 128, 0.3);
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 16px;
+            font-size: 13px;
+            color: #4ade80;
+        }
+
+        .volume-meter {
+            height: 4px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 2px;
+            margin-top: 8px;
+            overflow: hidden;
+        }
+
+        .volume-bar {
+            height: 100%;
+            background: linear-gradient(90deg, #4ade80, #22c55e);
+            width: 0%;
+            transition: width 0.1s;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎙️ 语音通话</h1>
+        <p class="subtitle">局域网 P2P 通话 · 无需网络</p>
+
+        <!-- 连接状态 -->
+        <div class="status-bar">
+            <div class="status-text" id="status">准备连接信令服务器</div>
+            <div class="connection-info" id="connectionInfo">
+                请先输入信令服务器地址
+            </div>
+        </div>
+
+        <!-- 服务器地址 -->
+        <div class="server-input">
+            <label>📡 信令服务器地址</label>
+            <input type="text" id="serverUrl" placeholder="输入服务器地址，如 http://192.168.1.100:3000" value="">
+        </div>
+
+        <!-- 加入房间表单 -->
+        <div class="join-form" id="joinForm">
+            <div class="form-group">
+                <label>房间号</label>
+                <input type="text" id="roomId" placeholder="输入房间号，如 1234" value="1234">
+            </div>
+            <div class="form-group">
+                <label>你的昵称</label>
+                <input type="text" id="userName" placeholder="输入昵称">
+            </div>
+            <button class="btn btn-primary" id="joinBtn">加入房间</button>
+        </div>
+
+        <!-- 通话控制 -->
+        <div class="call-controls" id="callControls">
+            <div class="users-list">
+                <h3>👥 在线用户</h3>
+                <div id="usersList"></div>
+            </div>
+
+            <div class="btn-group">
+                <button class="btn btn-secondary" id="muteBtn">🔇 静音</button>
+                <button class="btn btn-primary" id="callBtn">📞 发起通话</button>
+            </div>
+
+            <button class="btn btn-danger" id="leaveBtn" style="margin-top: 12px;">离开房间</button>
+        </div>
+
+        <p class="hint">💡 同一房间内的用户可以互相通话</p>
+    </div>
+
+    <script>
+        // ========== 配置 ==========
+        let serverUrl = '';
+        let ws = null;
+        let peerConnections = {};
+        let localStream = null;
+        let isMuted = false;
+
+        // DOM 元素
+        const serverUrlInput = document.getElementById('serverUrl');
+        const roomIdInput = document.getElementById('roomId');
+        const userNameInput = document.getElementById('userName');
+        const statusEl = document.getElementById('status');
+        const connectionInfoEl = document.getElementById('connectionInfo');
+        const joinForm = document.getElementById('joinForm');
+        const callControls = document.getElementById('callControls');
+        const usersList = document.getElementById('usersList');
+
+        // 生成随机昵称
+        userNameInput.value = '用户_' + Math.floor(Math.random() * 1000);
+
+        // ========== 信令服务器连接 ==========
+        function connect() {
+            serverUrl = serverUrlInput.value.trim();
+            if (!serverUrl) {
+                alert('请输入信令服务器地址');
+                return;
+            }
+
+            // 确保 WebSocket URL 格式正确
+            let wsUrl = serverUrl;
+            if (wsUrl.startsWith('https://')) {
+                wsUrl = wsUrl.replace('https://', 'wss://');
+            } else if (wsUrl.startsWith('http://')) {
+                wsUrl = wsUrl.replace('http://', 'ws://');
+            } else if (!wsUrl.startsWith('ws://') && !wsUrl.startsWith('wss://')) {
+                wsUrl = 'ws://' + wsUrl;
+            }
+            if (wsUrl.endsWith('/')) {
+                wsUrl = wsUrl.slice(0, -1);
+            }
+
+            statusEl.textContent = '正在连接...';
+            statusEl.className = 'status-text';
+
+            try {
+                ws = new WebSocket(wsUrl);
+
+                ws.onopen = () => {
+                    statusEl.textContent = '已连接信令服务器';
+                    statusEl.className = 'status-text connected';
+                    connectionInfoEl.textContent = `✅ 连接成功: ${serverUrl}`;
+                    joinForm.classList.remove('hidden');
+                };
+
+                ws.onclose = () => {
+                    statusEl.textContent = '连接已断开';
+                    statusEl.className = 'status-text error';
+                    connectionInfoEl.textContent = '❌ 请检查服务器是否运行';
+                    joinForm.classList.add('hidden');
+                    callControls.classList.remove('active');
+                };
+
+                ws.onerror = (error) => {
+                    statusEl.textContent = '连接失败';
+                    statusEl.className = 'status-text error';
+                    connectionInfoEl.textContent = '❌ 无法连接到服务器，请确保服务器已启动';
+                    console.error('WebSocket 错误:', error);
+                };
+
+                ws.onmessage = handleMessage;
+
+            } catch (error) {
+                console.error('连接错误:', error);
+                statusEl.textContent = '连接失败';
+                statusEl.className = 'status-text error';
+            }
+        }
+
+        // ========== 消息处理 ==========
+        async function handleMessage(event) {
+            const data = JSON.parse(event.data);
+
+            switch (data.type) {
+                case 'room-users':
+                    updateUsersList(data.users);
+                    break;
+
+                case 'user-joined':
+                    console.log(`${data.userId} 加入了房间`);
+                    addUserToList(data.userId);
+                    // 自动向新用户发起通话请求
+                    if (localStream) {
+                        createPeerConnection(data.userId, true);
+                    }
+                    break;
+
+                case 'user-left':
+                    console.log(`${data.userId} 离开了房间`);
+                    removeUserFromList(data.userId);
+                    closePeerConnection(data.userId);
+                    break;
+
+                case 'offer':
+                    await handleOffer(data.from, data.payload);
+                    break;
+
+                case 'answer':
+                    await handleAnswer(data.from, data.payload);
+                    break;
+
+                case 'ice-candidate':
+                    await handleIceCandidate(data.from, data.payload);
+                    break;
+            }
+        }
+
+        // ========== 加入房间 ==========
+        async function joinRoom() {
+            const roomId = roomIdInput.value.trim();
+            const userName = userNameInput.value.trim();
+
+            if (!roomId) {
+                alert('请输入房间号');
+                return;
+            }
+            if (!userName) {
+                alert('请输入昵称');
+                return;
+            }
+
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                connect();
+                setTimeout(() => joinRoom(), 1000);
+                return;
+            }
+
+            // 获取本地音频流
+            try {
+                localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                statusEl.textContent = '已获取麦克风权限';
+                statusEl.className = 'status-text connected';
+            } catch (error) {
+                console.error('获取麦克风失败:', error);
+                alert('无法访问麦克风，请检查权限设置');
+                return;
+            }
+
+            // 发送加入房间消息
+            ws.send(JSON.stringify({
+                type: 'join',
+                roomId: roomId,
+                userId: userName
+            }));
+
+            // 切换 UI
+            joinForm.classList.add('hidden');
+            callControls.classList.add('active');
+            statusEl.textContent = `已加入房间 ${roomId}`;
+        }
+
+        // ========== 离开房间 ==========
+        function leaveRoom() {
+            // 关闭所有 PeerConnection
+            Object.keys(peerConnections).forEach(userId => {
+                closePeerConnection(userId);
+            });
+
+            // 停止本地流
+            if (localStream) {
+                localStream.getTracks().forEach(track => track.stop());
+                localStream = null;
+            }
+
+            // 发送离开消息
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'leave' }));
+            }
+
+            // 切换 UI
+            joinForm.classList.remove('hidden');
+            callControls.classList.remove('active');
+            usersList.innerHTML = '';
+            statusEl.textContent = '已离开房间';
+            statusEl.className = 'status-text';
+        }
+
+        // ========== P2P 连接管理 ==========
+        const config = {
+            iceServers: [
+                { urls: 'stun:stun.l.google.com:19302' },
+                { urls: 'stun:stun1.l.google.com:19302' }
+            ]
+        };
+
+        function createPeerConnection(userId, isInitiator) {
+            if (peerConnections[userId]) {
+                return peerConnections[userId];
+            }
+
+            console.log(`创建 P2P 连接: ${isInitiator ? '发起方' : '接收方'}`);
+
+            const pc = new RTCPeerConnection(config);
+            peerConnections[userId] = pc;
+
+            // 添加本地流
+            if (localStream) {
+                localStream.getTracks().forEach(track => {
+                    pc.addTrack(track, localStream);
+                });
+            }
+
+            // 处理远程流
+            pc.ontrack = (event) => {
+                console.log(`收到 ${userId} 的音频流`);
+                const audio = new Audio();
+                audio.srcObject = event.streams[0];
+                audio.autoplay = true;
+                
+                // 保存音频元素以便控制
+                if (!pc.audioElement) {
+                    pc.audioElement = audio;
+                }
+            };
+
+            // ICE 候选
+            pc.onicecandidate = (event) => {
+                if (event.candidate) {
+                    sendSignal(userId, 'ice-candidate', event.candidate);
+                }
+            };
+
+            // 连接状态变化
+            pc.onconnectionstatechange = () => {
+                console.log(`连接状态: ${userId} - ${pc.connectionState}`);
+            };
+
+            // 发起通话
+            if (isInitiator) {
+                pc.createOffer()
+                    .then(offer => pc.setLocalDescription(offer))
+                    .then(() => sendSignal(userId, 'offer', pc.localDescription));
+            }
+
+            return pc;
+        }
+
+        function closePeerConnection(userId) {
+            if (peerConnections[userId]) {
+                peerConnections[userId].close();
+                delete peerConnections[userId];
+            }
+        }
+
+        async function handleOffer(from, payload) {
+            console.log(`收到来自 ${from} 的通话请求`);
+            const pc = createPeerConnection(from, false);
+            await pc.setRemoteDescription(new RTCSessionDescription(payload));
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
+            sendSignal(from, 'answer', pc.localDescription);
+            statusEl.textContent = `正在与 ${from} 通话...`;
+        }
+
+        async function handleAnswer(from, payload) {
+            console.log(`收到来自 ${from} 的应答`);
+            const pc = peerConnections[from];
+            if (pc) {
+                await pc.setRemoteDescription(new RTCSessionDescription(payload));
+            }
+        }
+
+        async function handleIceCandidate(from, payload) {
+            const pc = peerConnections[from];
+            if (pc) {
+                await pc.addIceCandidate(new RTCIceCandidate(payload));
+            }
+        }
+
+        function sendSignal(to, type, payload) {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    type: type,
+                    to: to,
+                    payload: payload
+                }));
+            }
+        }
+
+        // ========== UI 更新 ==========
+        function updateUsersList(users) {
+            usersList.innerHTML = '';
+            users.forEach(userId => addUserToList(userId));
+        }
+
+        function addUserToList(userId) {
+            if (document.getElementById('user-' + userId)) return;
+
+            const div = document.createElement('div');
+            div.className = 'user-item';
+            div.id = 'user-' + userId;
+            div.innerHTML = `
+                <div class="user-avatar">👤</div>
+                <div class="user-name">${userId}</div>
+                <div class="mic-indicator" id="indicator-${userId}"></div>
+            `;
+            usersList.appendChild(div);
+        }
+
+        function removeUserFromList(userId) {
+            const el = document.getElementById('user-' + userId);
+            if (el) el.remove();
+        }
+
+        // ========== 通话控制 ==========
+        document.getElementById('joinBtn').addEventListener('click', joinRoom);
+        document.getElementById('leaveBtn').addEventListener('click', leaveRoom);
+
+        document.getElementById('muteBtn').addEventListener('click', () => {
+            if (!localStream) return;
+
+            if (isMuted) {
+                localStream.getAudioTracks().forEach(track => track.enabled = true);
+                document.getElementById('muteBtn').textContent = '🔇 静音';
+                document.getElementById('muteBtn').classList.remove('btn-danger');
+                document.getElementById('muteBtn').classList.add('btn-secondary');
+            } else {
+                localStream.getAudioTracks().forEach(track => track.enabled = false);
+                document.getElementById('muteBtn').textContent = '🔊 取消静音';
+                document.getElementById('muteBtn').classList.remove('btn-secondary');
+                document.getElementById('muteBtn').classList.add('btn-danger');
+            }
+            isMuted = !isMuted;
+        });
+
+        document.getElementById('callBtn').addEventListener('click', async () => {
+            // 向所有在线用户发起通话
+            const users = usersList.querySelectorAll('.user-item');
+            if (users.length === 0) {
+                alert('房间里没有其他用户');
+                return;
+            }
+
+            users.forEach(userEl => {
+                const userId = userEl.querySelector('.user-name').textContent;
+                if (!peerConnections[userId]) {
+                    createPeerConnection(userId, true);
+                }
+            });
+
+            statusEl.textContent = '正在呼叫...';
+        });
+
+        // 自动连接
+        connect();
+
+        // 页面卸载时离开
+        window.addEventListener('beforeunload', leaveRoom);
+    </script>
+</body>
+</html>

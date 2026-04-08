@@ -1,3 +1,11 @@
 node_modules/
+<<<<<<< HEAD
 .env
 .DS_Store
+=======
+*.log
+.DS_Store
+.env
+server.key
+server.crt
+>>>>>>> a801239f5254ef141a1a6a22c3df0685c1ec696d
