@@ -1,8 +1,7 @@
 /**
- * 🎙️ 局域网语音通话 - 信令服务器
+ * 🎙️ 语音通话信令服务器 + 音频中继
  * 
- * 支持 HTTP 和 HTTPS 两种模式
- * HTTPS 解决浏览器麦克风权限限制
+ * 当 P2P 连接失败时，自动切换到服务器中继模式
  */
 
 const express = require('express');
@@ -39,6 +38,8 @@ wss = new WebSocket.Server({ server });
 
 // 房间管理
 const rooms = new Map();
+// 中继模式：存储需要中继的客户端配对
+const relayPairs = new Map();
 
 // 获取本机IP
 function getLocalIP() {
@@ -88,13 +89,12 @@ wss.on('connection', (ws, req) => {
 
     console.log(`[${new Date().toLocaleTimeString()}] 新连接: ${req.socket.remoteAddress}`);
 
-    // 心跳机制 - 保持连接活跃
+    // 心跳机制
     ws.on('pong', () => {
         isAlive = true;
     });
 
     ws.on('message', (message) => {
-        // 收到消息时重置心跳
         isAlive = true;
         
         try {
@@ -104,6 +104,7 @@ wss.on('connection', (ws, req) => {
                 case 'ping':
                     ws.send(JSON.stringify({ type: 'pong' }));
                     break;
+                    
                 case 'join':
                     userId = data.userId;
                     currentRoom = data.roomId;
@@ -133,6 +134,7 @@ wss.on('connection', (ws, req) => {
                     }));
                     break;
 
+                // P2P 信令
                 case 'offer':
                 case 'answer':
                 case 'ice-candidate':
@@ -141,6 +143,22 @@ wss.on('connection', (ws, req) => {
                         from: userId,
                         to: data.to,
                         payload: data.payload
+                    }, ws);
+                    break;
+
+                // 中继模式：音频数据
+                case 'relay-audio':
+                    // 将音频数据转发给房间内的其他用户
+                    relayAudio(ws, data);
+                    break;
+
+                // 请求切换到中继模式
+                case 'request-relay':
+                    console.log(`[${new Date().toLocaleTimeString()}] ${userId} 请求中继模式`);
+                    // 通知对方开启中继
+                    broadcast(currentRoom, {
+                        type: 'relay-start',
+                        from: userId
                     }, ws);
                     break;
 
@@ -163,7 +181,26 @@ wss.on('connection', (ws, req) => {
     });
 });
 
-// 全局心跳检查 - 每30秒ping所有客户端
+// 中继音频数据
+function relayAudio(senderWs, data) {
+    if (!senderWs.currentRoom) return;
+    
+    const room = rooms.get(senderWs.currentRoom);
+    if (!room) return;
+
+    for (const client of room) {
+        if (client !== senderWs && client.readyState === WebSocket.OPEN) {
+            client.send(JSON.stringify({
+                type: 'relay-audio',
+                from: senderWs.userId,
+                audioData: data.audioData,
+                timestamp: Date.now()
+            }));
+        }
+    }
+}
+
+// 全局心跳检查
 setInterval(() => {
     wss.clients.forEach((ws) => {
         if (!ws.isAlive) {
@@ -210,7 +247,7 @@ server.listen(PORT, '0.0.0.0', () => {
     const localIP = getLocalIP();
     
     console.log('');
-    console.log('🎙️  VoiceCall 信令服务器已启动');
+    console.log('🎙️ VoiceCall 信令服务器已启动 (含音频中继)');
     console.log('');
     console.log('📡 访问地址:');
     console.log(`   🔓 HTTP:  http://localhost:${PORT}`);
@@ -224,7 +261,6 @@ server.listen(PORT, '0.0.0.0', () => {
     console.log('');
 });
 
-// HTTPS 也监听
 if (hasSSL) {
     server.listen(HTTPS_PORT, '0.0.0.0', () => {
         const localIP = getLocalIP();
