@@ -533,23 +533,21 @@
         }
 
         // ========== P2P 连接管理 ==========
-        // 添加 TURN 服务器以解决 NAT 穿透问题
+        // 自定义 TURN 服务器（Railway）
+        const TURN_SERVER = 'beautiful-happiness-production-c963.up.railway.app';
+        const TURN_USER = 'voiceuser';
+        const TURN_CRED = 'voicepass2024';
+
         const config = {
             iceServers: [
                 // STUN 服务器
                 { urls: 'stun:stun.l.google.com:19302' },
                 { urls: 'stun:stun1.l.google.com:19302' },
                 { urls: 'stun:stun2.l.google.com:19302' },
-                { urls: 'stun:stun3.l.google.com:19302' },
-                // 免费 TURN 服务器（用于移动网络穿透）
-                { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
-                { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
-                // 备用 TURN 服务器
-                { urls: 'turn:relay.backups.cz', username: 'guest', credential: 'guest' }
+                // 自定义 TURN 服务器（移动网络必需）
+                { urls: 'turn:' + TURN_SERVER + ':3478', username: TURN_USER, credential: TURN_CRED }
             ],
-            // ICE 传输策略 - 优先使用所有候选对
             iceTransportPolicy: 'all',
-            // ICE 候选池大小
             iceCandidatePoolSize: 10
         };
 
