@@ -1,0 +1,8 @@
+[railway]
+  builder = "docker"
+  dockerfilePath = "Dockerfile"
+
+[deploy]
+  numInstances = 1
+  restartPolicyType = "ON_FAILURE"
+  restartPolicyDelay = 5
