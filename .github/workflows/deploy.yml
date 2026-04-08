@@ -1,0 +1,42 @@
+name: Deploy to Railway
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'web/backend/**'
+  workflow_dispatch:
+
+jobs:
+  deploy-backend:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: 'web/backend/package-lock.json'
+
+      - name: Install dependencies
+        working-directory: ./web/backend
+        run: npm ci
+
+      - name: Railway Deploy
+        uses: buildkite/railway-action@v1
+        with:
+          token: ${{ secrets.RAILWAY_TOKEN }}
+          environment: production
+          service: voicecall-backend
+        env:
+          TRTC_APP_ID: ${{ secrets.TRTC_APP_ID }}
+          TRTC_SECRET_KEY: ${{ secrets.TRTC_SECRET_KEY }}
+
+      - name: Deploy Summary
+        run: |
+          echo "## 🚂 Railway 部署状态" >> $GITHUB_STEP_SUMMARY
+          echo "- 状态: 部署请求已发送" >> $GITHUB_STEP_SUMMARY
+          echo "- 后端服务: $(date)" >> $GITHUB_STEP_SUMMARY
