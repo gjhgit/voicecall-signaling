@@ -377,20 +377,35 @@
 
             try {
                 ws = new WebSocket(wsUrl);
+                let heartbeatTimer = null;
 
                 ws.onopen = () => {
                     statusEl.textContent = '已连接信令服务器';
                     statusEl.className = 'status-text connected';
                     connectionInfoEl.textContent = `✅ 连接成功: ${serverUrl}`;
                     joinForm.classList.remove('hidden');
+                    
+                    // 启动心跳 - 每25秒发送一次
+                    heartbeatTimer = setInterval(() => {
+                        if (ws && ws.readyState === WebSocket.OPEN) {
+                            ws.send(JSON.stringify({ type: 'ping' }));
+                        }
+                    }, 25000);
                 };
 
                 ws.onclose = () => {
-                    statusEl.textContent = '连接已断开';
+                    // 清除心跳定时器
+                    if (heartbeatTimer) {
+                        clearInterval(heartbeatTimer);
+                    }
+                    statusEl.textContent = '连接已断开，正在重连...';
                     statusEl.className = 'status-text error';
-                    connectionInfoEl.textContent = '❌ 请检查服务器是否运行';
+                    connectionInfoEl.textContent = '🔄 正在重新连接...';
                     joinForm.classList.add('hidden');
                     callControls.classList.remove('active');
+                    
+                    // 延迟重连 - 3秒后重试
+                    setTimeout(() => connect(), 3000);
                 };
 
                 ws.onerror = (error) => {
