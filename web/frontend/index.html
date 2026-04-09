@@ -341,6 +341,96 @@
         .btn-share.sharing {
             background: linear-gradient(135deg, #f97316, #ea580c);
         }
+
+        .btn-fullscreen {
+            background: linear-gradient(135deg, #8b5cf6, #7c3aed);
+            color: white;
+            border: none;
+        }
+
+        .btn-fullscreen.active {
+            background: linear-gradient(135deg, #ec4899, #db2777);
+        }
+
+        /* 全屏模式 */
+        .fullscreen-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #000;
+            z-index: 9999;
+            cursor: crosshair;
+        }
+
+        .fullscreen-overlay.active {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .fullscreen-overlay video {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+
+        .fullscreen-toolbar {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 12px;
+            background: rgba(0,0,0,0.7);
+            padding: 12px 20px;
+            border-radius: 30px;
+        }
+
+        .fullscreen-toolbar button {
+            background: rgba(255,255,255,0.2);
+            border: none;
+            color: white;
+            padding: 10px 16px;
+            border-radius: 20px;
+            font-size: 14px;
+            cursor: pointer;
+        }
+
+        .fullscreen-toolbar button:hover {
+            background: rgba(255,255,255,0.3);
+        }
+
+        .fullscreen-label {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.7);
+            color: white;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 14px;
+        }
+
+        /* 控制模式指示器 */
+        .control-indicator {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(74, 222, 128, 0.9);
+            color: white;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 12px;
+            display: none;
+        }
+
+        .control-indicator.active {
+            display: block;
+            animation: pulse 1s infinite;
+        }
     </style>
 </head>
 <body>
@@ -400,6 +490,18 @@
                         <span class="video-label">我的摄像头</span>
                     </div>
                 </div>
+                <button class="btn btn-fullscreen" id="fullscreenBtn" style="margin-top: 12px; width: 100%;">📺 全屏查看</button>
+            </div>
+        </div>
+
+        <!-- 全屏覆盖层 -->
+        <div class="fullscreen-overlay" id="fullscreenOverlay">
+            <div class="fullscreen-label" id="fullscreenLabel">PC 屏幕</div>
+            <div class="control-indicator" id="controlIndicator">🖱️ 控制模式</div>
+            <video id="fullscreenVideo" autoplay playsinline></video>
+            <div class="fullscreen-toolbar">
+                <button id="exitFullscreenBtn">✕ 退出全屏</button>
+                <button id="toggleControlBtn">🖱️ 启用控制</button>
             </div>
         </div>
 
@@ -418,6 +520,12 @@
         let screenStream = null;
         let isSharing = false;
         let screenPCs = {};
+        
+        // 全屏和远程控制相关
+        let isFullscreen = false;
+        let isControlMode = false;
+        let controlTargetUser = null;
+        let lastTouchTime = 0;
         
         // 中继模式相关
         let relayMode = {};
@@ -646,19 +754,26 @@
 
         const config = {
             iceServers: [
-                // STUN 服务器
+                // Google STUN 服务器
                 { urls: 'stun:stun.l.google.com:19302' },
                 { urls: 'stun:stun1.l.google.com:19302' },
                 { urls: 'stun:stun2.l.google.com:19302' },
                 { urls: 'stun:stun3.l.google.com:19302' },
                 { urls: 'stun:stun4.l.google.com:19302' },
+                // Twilio STUN 服务器
+                { urls: 'stun:global.stun.twilio.com:3478' },
+                // 额外 STUN 服务器
                 { urls: 'stun:stun.stunprotocol.org:3478' },
                 { urls: 'stun:stun.counterpath.com:3478' },
+                { urls: 'stun:stun.qq.com:3478' },
                 // 自定义 TURN 服务器（移动网络必需）
-                { urls: 'turn:' + TURN_SERVER + ':3478', username: TURN_USER, credential: TURN_CRED }
+                { urls: 'turn:' + TURN_SERVER + ':3478', username: TURN_USER, credential: TURN_CRED },
+                { urls: 'turn:' + TURN_SERVER + ':443', username: TURN_USER, credential: TURN_CRED }
             ],
             iceTransportPolicy: 'all',
-            iceCandidatePoolSize: 10
+            iceCandidatePoolSize: 16,
+            // 优化连接参数
+            bundled: true
         };
 
         function createPeerConnection(userId, isInitiator) {
@@ -851,16 +966,26 @@
         // 视频共享专用的 ICE 配置
         const screenConfig = {
             iceServers: [
+                // Google 公共 STUN 服务器
                 { urls: 'stun:stun.l.google.com:19302' },
                 { urls: 'stun:stun1.l.google.com:19302' },
                 { urls: 'stun:stun2.l.google.com:19302' },
                 { urls: 'stun:stun3.l.google.com:19302' },
                 { urls: 'stun:stun4.l.google.com:19302' },
+                // Twilio STUN 服务器
+                { urls: 'stun:global.stun.twilio.com:3478' },
+                // 额外 STUN 服务器
                 { urls: 'stun:stun.stunprotocol.org:3478' },
                 { urls: 'stun:stun.counterpath.com:3478' },
+                { urls: 'stun:stun.qq.com:3478' },
+                // 自定义 TURN 服务器（移动网络必需）
+                { urls: 'turn:' + TURN_SERVER + ':3478', username: TURN_USER, credential: TURN_CRED },
+                { urls: 'turn:' + TURN_SERVER + ':443', username: TURN_USER, credential: TURN_CRED }
             ],
             iceTransportPolicy: 'all',
-            iceCandidatePoolSize: 10
+            iceCandidatePoolSize: 16,
+            // 优化连接参数
+            bundled: true
         };
 
         async function startScreenShare() {
@@ -1050,7 +1175,214 @@
             videoEl.srcObject = stream;
             videoEl.play().catch(e => console.log(`[视频共享] play() 失败:`, e));
             document.getElementById('screenShareArea').classList.add('active');
+            
+            // 同时设置全屏视频源
+            const fullscreenVideo = document.getElementById('fullscreenVideo');
+            fullscreenVideo.srcObject = stream;
+            fullscreenVideo.play().catch(e => console.log(`[视频共享] 全屏play() 失败:`, e));
+            controlTargetUser = userId;
         }
+        
+        // ========== 全屏和远程控制 ==========
+        function openFullscreen() {
+            const overlay = document.getElementById('fullscreenOverlay');
+            const fullscreenVideo = document.getElementById('fullscreenVideo');
+            
+            // 找到第一个远端视频
+            const remoteWrappers = document.querySelectorAll('.remote-video-wrapper');
+            if (remoteWrappers.length > 0) {
+                const videoEl = remoteWrappers[0].querySelector('video');
+                if (videoEl.srcObject) {
+                    fullscreenVideo.srcObject = videoEl.srcObject;
+                    fullscreenVideo.play().catch(e => console.log(`[全屏] play() 失败:`, e));
+                }
+            }
+            
+            overlay.classList.add('active');
+            isFullscreen = true;
+            
+            // 添加触摸事件
+            setupTouchControls(fullscreenVideo);
+        }
+        
+        function closeFullscreen() {
+            const overlay = document.getElementById('fullscreenOverlay');
+            overlay.classList.remove('active');
+            isFullscreen = false;
+            
+            // 禁用控制模式
+            if (isControlMode) {
+                toggleControlMode();
+            }
+        }
+        
+        function setupTouchControls(videoEl) {
+            const overlay = document.getElementById('fullscreenOverlay');
+            const videoRect = videoEl.getBoundingClientRect();
+            
+            // 触摸开始
+            overlay.addEventListener('touchstart', handleTouchStart, { passive: false });
+            
+            // 触摸移动
+            overlay.addEventListener('touchmove', handleTouchMove, { passive: false });
+            
+            // 触摸结束
+            overlay.addEventListener('touchend', handleTouchEnd, { passive: false });
+            
+            // 点击事件（用于模拟鼠标点击）
+            overlay.addEventListener('click', handleClick);
+        }
+        
+        let touchStartPos = null;
+        let isDragging = false;
+        
+        function handleTouchStart(e) {
+            if (!isControlMode) return;
+            e.preventDefault();
+            
+            const touch = e.touches[0];
+            const overlay = document.getElementById('fullscreenOverlay');
+            const video = document.getElementById('fullscreenVideo');
+            const rect = video.getBoundingClientRect();
+            
+            // 计算相对于视频的位置（0-1范围）
+            const relX = (touch.clientX - rect.left) / rect.width;
+            const relY = (touch.clientY - rect.top) / rect.height;
+            
+            touchStartPos = { x: touch.clientX, y: touch.clientY, relX, relY };
+            isDragging = true;
+            
+            // 发送鼠标移动
+            sendControl('mousemoveabs', { x: relX, y: relY });
+            
+            // 发送鼠标按下
+            sendControl('mousedown', { button: 0 });
+        }
+        
+        function handleTouchMove(e) {
+            if (!isControlMode || !isDragging) return;
+            e.preventDefault();
+            
+            const touch = e.touches[0];
+            const overlay = document.getElementById('fullscreenOverlay');
+            const video = document.getElementById('fullscreenVideo');
+            const rect = video.getBoundingClientRect();
+            
+            // 计算相对于视频的位置（0-1范围）
+            const relX = (touch.clientX - rect.left) / rect.width;
+            const relY = (touch.clientY - rect.top) / rect.height;
+            
+            // 发送鼠标移动
+            sendControl('mousemoveabs', { x: relX, y: relY });
+            
+            touchStartPos = { x: touch.clientX, y: touch.clientY, relX, relY };
+        }
+        
+        function handleTouchEnd(e) {
+            if (!isControlMode) return;
+            e.preventDefault();
+            
+            // 发送鼠标释放
+            sendControl('mouseup', { button: 0 });
+            
+            // 检测是否为点击（移动距离小于10px）
+            if (touchStartPos) {
+                const touch = e.changedTouches[0];
+                const dx = Math.abs(touch.clientX - touchStartPos.x);
+                const dy = Math.abs(touch.clientY - touchStartPos.y);
+                
+                if (dx < 10 && dy < 10) {
+                    // 发送点击
+                    sendControl('click', { button: 0 });
+                }
+            }
+            
+            isDragging = false;
+            touchStartPos = null;
+        }
+        
+        function handleClick(e) {
+            if (!isControlMode) return;
+            
+            const overlay = document.getElementById('fullscreenOverlay');
+            const video = document.getElementById('fullscreenVideo');
+            const rect = video.getBoundingClientRect();
+            
+            // 计算相对于视频的位置（0-1范围）
+            const relX = (e.clientX - rect.left) / rect.width;
+            const relY = (e.clientY - rect.top) / rect.height;
+            
+            // 移动鼠标到点击位置
+            sendControl('mousemoveabs', { x: relX, y: relY });
+            
+            // 发送点击
+            sendControl('click', { button: 0 });
+        }
+        
+        function toggleControlMode() {
+            isControlMode = !isControlMode;
+            
+            const indicator = document.getElementById('controlIndicator');
+            const toggleBtn = document.getElementById('toggleControlBtn');
+            
+            if (isControlMode) {
+                indicator.classList.add('active');
+                toggleBtn.textContent = '⏹️ 停止控制';
+                toggleBtn.classList.add('active');
+                
+                // 连接控制服务器
+                connectControl();
+            } else {
+                indicator.classList.remove('active');
+                toggleBtn.textContent = '🖱️ 启用控制';
+                toggleBtn.classList.remove('active');
+                
+                // 断开控制连接
+                if (controlWs) {
+                    controlWs.close();
+                    controlWs = null;
+                }
+            }
+        }
+        
+        function connectControl() {
+            // 控制模式只需要通过主WebSocket发送，不需要单独连接
+            console.log('[控制] 控制模式已启用');
+        }
+        
+        function sendControl(action, data = {}) {
+            if (!controlTargetUser) {
+                console.log('[控制] 未指定控制目标');
+                return;
+            }
+            
+            const controlData = {
+                type: 'control',
+                action: action,
+                to: controlTargetUser,
+                ...data
+            };
+            
+            // 通过主WebSocket发送控制消息
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify(controlData));
+                console.log(`[控制] 发送: ${action}`);
+            } else {
+                console.log('[控制] WebSocket未连接，无法发送控制命令');
+            }
+        }
+        
+        // 监听全屏按钮点击
+        document.getElementById('fullscreenBtn').addEventListener('click', openFullscreen);
+        document.getElementById('exitFullscreenBtn').addEventListener('click', closeFullscreen);
+        document.getElementById('toggleControlBtn').addEventListener('click', toggleControlMode);
+        
+        // ESC键退出全屏
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && isFullscreen) {
+                closeFullscreen();
+            }
+        });
 
         function removeRemoteScreen(userId) {
             const wrapper = document.getElementById('remote-video-' + userId);

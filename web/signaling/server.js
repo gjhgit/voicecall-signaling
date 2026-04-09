@@ -182,6 +182,21 @@ wss.on('connection', (ws, req) => {
                     relayAudio(ws, data);
                     break;
 
+                // 远程控制信令
+                case 'control':
+                    console.log(`[${new Date().toLocaleTimeString()}] 远程控制: ${data.action} from=${userId}`);
+                    sendTo(currentRoom, data.to, {
+                        type: 'control',
+                        from: userId,
+                        to: data.to,
+                        action: data.action,
+                        x: data.x,
+                        y: data.y,
+                        button: data.button,
+                        key: data.key
+                    });
+                    break;
+
                 // 请求切换到中继模式
                 case 'request-relay':
                     console.log(`[${new Date().toLocaleTimeString()}] ${userId} 请求中继模式`);

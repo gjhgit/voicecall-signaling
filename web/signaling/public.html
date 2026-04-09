@@ -388,6 +388,7 @@
             </div>
 
             <button class="btn btn-share" id="shareBtn" style="margin-top: 12px; width: 100%;">🖥️ 共享屏幕</button>
+            <button class="btn btn-secondary" id="controlBtn" style="margin-top: 12px; width: 100%; display: none;">🖱️ 允许远程控制</button>
             <button class="btn btn-danger" id="leaveBtn" style="margin-top: 8px;">离开房间</button>
 
             <!-- 屏幕共享视频区域 -->
@@ -602,6 +603,11 @@
                 case 'screen-stop':
                     removeRemoteScreen(data.from);
                     break;
+
+                // 远程控制
+                case 'control':
+                    handleControl(data.action, data);
+                    break;
             }
         }
 
@@ -721,20 +727,26 @@
 
         const config = {
             iceServers: [
-                // STUN 服务器
+                // Google STUN 服务器
                 { urls: 'stun:stun.l.google.com:19302' },
                 { urls: 'stun:stun1.l.google.com:19302' },
                 { urls: 'stun:stun2.l.google.com:19302' },
                 { urls: 'stun:stun3.l.google.com:19302' },
                 { urls: 'stun:stun4.l.google.com:19302' },
+                // Twilio STUN 服务器
+                { urls: 'stun:global.stun.twilio.com:3478' },
                 // 额外 STUN 服务器
                 { urls: 'stun:stun.stunprotocol.org:3478' },
                 { urls: 'stun:stun.counterpath.com:3478' },
+                { urls: 'stun:stun.qq.com:3478' },
                 // 自定义 TURN 服务器（移动网络必需）
-                { urls: 'turn:' + TURN_SERVER + ':3478', username: TURN_USER, credential: TURN_CRED }
+                { urls: 'turn:' + TURN_SERVER + ':3478', username: TURN_USER, credential: TURN_CRED },
+                { urls: 'turn:' + TURN_SERVER + ':443', username: TURN_USER, credential: TURN_CRED }
             ],
             iceTransportPolicy: 'all',
-            iceCandidatePoolSize: 10
+            iceCandidatePoolSize: 16,
+            // 优化连接参数
+            bundled: true
         };
 
         function createPeerConnection(userId, isInitiator) {
@@ -941,6 +953,9 @@
 
         // ========== 屏幕共享 ==========
         let screenPCs = {}; // 专门用于屏幕共享的 PeerConnection
+        
+        // 远程控制相关
+        let controlEnabled = false;
 
         // 屏幕共享专用的 ICE 配置（视频需要更多带宽）
         const screenConfig = {
@@ -951,14 +966,20 @@
                 { urls: 'stun:stun2.l.google.com:19302' },
                 { urls: 'stun:stun3.l.google.com:19302' },
                 { urls: 'stun:stun4.l.google.com:19302' },
+                // Twilio STUN 服务器
+                { urls: 'stun:global.stun.twilio.com:3478' },
                 // 额外 STUN 服务器
                 { urls: 'stun:stun.stunprotocol.org:3478' },
                 { urls: 'stun:stun.counterpath.com:3478' },
+                { urls: 'stun:stun.qq.com:3478' },
+                // 自定义 TURN 服务器（移动网络必需）
+                { urls: 'turn:' + TURN_SERVER + ':3478', username: TURN_USER, credential: TURN_CRED },
+                { urls: 'turn:' + TURN_SERVER + ':443', username: TURN_USER, credential: TURN_CRED }
             ],
             iceTransportPolicy: 'all',
-            iceCandidatePoolSize: 10,
-            // 绑定刷新间隔（毫秒）
-            iceConnectionReceiveWindow: 512 * 1024
+            iceCandidatePoolSize: 16,
+            // 优化连接参数
+            bundled: true
         };
 
         async function startScreenShare() {
@@ -986,6 +1007,9 @@
             localVideo.srcObject = screenStream;
             document.getElementById('localVideoWrapper').style.display = 'block';
             document.getElementById('screenShareArea').classList.add('active');
+            
+            // 显示远程控制按钮
+            document.getElementById('controlBtn').style.display = 'block';
 
             // 对房间内每个用户发起屏幕共享连接
             const users = document.querySelectorAll('.user-item');
@@ -1030,6 +1054,10 @@
             // 隐藏本地预览
             document.getElementById('localVideoWrapper').style.display = 'none';
             document.getElementById('localVideo').srcObject = null;
+            
+            // 隐藏远程控制按钮
+            document.getElementById('controlBtn').style.display = 'none';
+            disableControl();
 
             // 如果没有远端屏幕，收起区域
             const remoteVideos = document.querySelectorAll('.remote-video-wrapper');
@@ -1197,6 +1225,67 @@
             }
         }
 
+        // ========== 远程控制 ==========
+        function toggleControl() {
+            if (controlEnabled) {
+                disableControl();
+            } else {
+                enableControl();
+            }
+        }
+
+        function enableControl() {
+            controlEnabled = true;
+            updateControlButton();
+            console.log('[远程控制] 已启用，等待手机端连接...');
+        }
+
+        function disableControl() {
+            controlEnabled = false;
+            updateControlButton();
+            console.log('[远程控制] 已禁用');
+        }
+
+        function updateControlButton() {
+            const btn = document.getElementById('controlBtn');
+            if (btn) {
+                if (controlEnabled) {
+                    btn.textContent = '⏹️ 停止远程控制';
+                    btn.classList.remove('btn-secondary');
+                    btn.classList.add('btn-danger');
+                } else {
+                    btn.textContent = '🖱️ 允许远程控制';
+                    btn.classList.remove('btn-danger');
+                    btn.classList.add('btn-secondary');
+                }
+            }
+        }
+
+        function executeControl(data) {
+            if (!controlEnabled) {
+                console.log('[远程控制] 控制未启用');
+                return;
+            }
+            
+            console.log('[远程控制] 执行操作:', data.action, data);
+            
+            // 发送HTTP请求到控制脚本
+            fetch('http://localhost:9222/control', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            }).catch(err => console.log('[远程控制] 控制请求失败:', err));
+        }
+
+        function handleControl(action, data) {
+            if (!controlEnabled) {
+                console.log('[远程控制] 收到控制命令，但控制未启用:', action);
+                return;
+            }
+            console.log('[远程控制] 收到控制命令:', action, data);
+            executeControl(data);
+        }
+
         // ========== UI 更新 ==========
         function updateUsersList(users) {
             usersList.innerHTML = '';
@@ -1233,6 +1322,8 @@
                 startScreenShare();
             }
         });
+
+        document.getElementById('controlBtn').addEventListener('click', toggleControl);
 
         document.getElementById('muteBtn').addEventListener('click', () => {
             if (!localStream) return;
