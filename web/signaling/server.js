@@ -150,6 +150,7 @@ wss.on('connection', (ws, req) => {
                 case 'screen-offer':
                 case 'screen-answer':
                 case 'screen-ice':
+                    console.log(`[${new Date().toLocaleTimeString()}] 屏幕信令: ${data.type} from=${userId} to=${data.to}`);
                     broadcast(currentRoom, {
                         type: data.type,
                         from: userId,
@@ -203,9 +204,9 @@ wss.on('connection', (ws, req) => {
 
 // 中继音频数据
 function relayAudio(senderWs, data) {
-    if (!senderWs.currentRoom) return;
+    if (!senderWs.roomId) return;
     
-    const room = rooms.get(senderWs.currentRoom);
+    const room = rooms.get(senderWs.roomId);
     if (!room) return;
 
     for (const client of room) {

@@ -879,10 +879,12 @@
 
         async function startScreenShare() {
             try {
+                console.log('[屏幕共享] 请求 getDisplayMedia...');
                 screenStream = await navigator.mediaDevices.getDisplayMedia({
                     video: { frameRate: 15, width: { ideal: 1280 }, height: { ideal: 720 } },
                     audio: false
                 });
+                console.log('[屏幕共享] getDisplayMedia 成功，轨道数:', screenStream.getTracks().length);
             } catch (e) {
                 console.log('屏幕共享取消或失败:', e);
                 return;
@@ -901,6 +903,7 @@
 
             // 对房间内每个用户发起屏幕共享连接
             const users = document.querySelectorAll('.user-item');
+            console.log(`[屏幕共享] 房间内用户数: ${users.length}`);
             users.forEach(userEl => {
                 const userId = userEl.querySelector('.user-name').textContent;
                 createScreenPC(userId, true);
@@ -955,17 +958,22 @@
                 delete screenPCs[userId];
             }
 
+            console.log(`[屏幕共享] 创建 screenPC: user=${userId}, initiator=${isInitiator}, hasStream=${!!screenStream}`);
+
             const pc = new RTCPeerConnection(config);
             screenPCs[userId] = pc;
 
             // 添加屏幕视频轨道
             if (screenStream) {
                 screenStream.getTracks().forEach(track => pc.addTrack(track, screenStream));
+                console.log(`[屏幕共享] 已添加 ${screenStream.getTracks().length} 个轨道`);
+            } else {
+                console.log(`[屏幕共享] 无本地屏幕流（接收方模式）`);
             }
 
             // 收到对方的屏幕流
             pc.ontrack = (event) => {
-                console.log(`收到 ${userId} 的屏幕流`);
+                console.log(`[屏幕共享] ontrack 触发: ${userId}, streams=${event.streams.length}, track=${event.track.kind}`);
                 showRemoteScreen(userId, event.streams[0]);
             };
 
@@ -975,35 +983,61 @@
                 }
             };
 
+            // 连接状态
+            pc.onconnectionstatechange = () => {
+                console.log(`[屏幕共享] 连接状态 ${userId}: ${pc.connectionState}`);
+            };
+
+            pc.oniceconnectionstatechange = () => {
+                console.log(`[屏幕共享] ICE状态 ${userId}: ${pc.iceConnectionState}`);
+            };
+
             if (isInitiator) {
-                pc.createOffer({ offerToReceiveVideo: true })
+                pc.createOffer({ offerToReceiveVideo: true, offerToReceiveAudio: false })
                     .then(offer => pc.setLocalDescription(offer))
                     .then(() => {
                         ws.send(JSON.stringify({ type: 'screen-offer', to: userId, payload: pc.localDescription }));
-                    });
+                        console.log(`[屏幕共享] 已发送 screen-offer 给 ${userId}`);
+                    })
+                    .catch(e => console.log(`[屏幕共享] offer创建失败:`, e));
             }
 
             return pc;
         }
 
         async function handleScreenOffer(from, payload) {
+            console.log(`[屏幕共享] 收到来自 ${from} 的 screen-offer`);
             document.getElementById('screenShareArea').classList.add('active');
             const pc = createScreenPC(from, false);
             await pc.setRemoteDescription(new RTCSessionDescription(payload));
             const answer = await pc.createAnswer();
             await pc.setLocalDescription(answer);
             ws.send(JSON.stringify({ type: 'screen-answer', to: from, payload: pc.localDescription }));
+            console.log(`[屏幕共享] 已发送 screen-answer 给 ${from}`);
         }
 
         async function handleScreenAnswer(from, payload) {
+            console.log(`[屏幕共享] 收到来自 ${from} 的 screen-answer`);
             const pc = screenPCs[from];
-            if (pc) await pc.setRemoteDescription(new RTCSessionDescription(payload));
+            if (pc) {
+                await pc.setRemoteDescription(new RTCSessionDescription(payload));
+                console.log(`[屏幕共享] screen-answer 设置成功`);
+            } else {
+                console.log(`[屏幕共享] 未找到 screenPC for ${from}`);
+            }
         }
 
         async function handleScreenIce(from, payload) {
             const pc = screenPCs[from];
             if (pc) {
-                try { await pc.addIceCandidate(new RTCIceCandidate(payload)); } catch(e) {}
+                try {
+                    await pc.addIceCandidate(new RTCIceCandidate(payload));
+                    console.log(`[屏幕共享] ICE 添加成功 from ${from}`);
+                } catch(e) {
+                    console.log(`[屏幕共享] ICE 添加失败:`, e);
+                }
+            } else {
+                console.log(`[屏幕共享] screen-ice 时未找到 screenPC for ${from}`);
             }
         }
 
