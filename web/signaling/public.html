@@ -877,6 +877,19 @@
         // ========== 屏幕共享 ==========
         let screenPCs = {}; // 专门用于屏幕共享的 PeerConnection
 
+        // 屏幕共享专用的 ICE 配置（视频需要更多带宽）
+        const screenConfig = {
+            iceServers: [
+                // Google 公共 STUN 服务器（视频可用）
+                { urls: 'stun:stun.l.google.com:19302' },
+                { urls: 'stun:stun1.l.google.com:19302' },
+                { urls: 'stun:stun2.l.google.com:19302' },
+                // TURN 服务器（备用）
+                { urls: 'turn:' + TURN_SERVER + ':3478', username: TURN_USER, credential: TURN_CRED }
+            ],
+            iceTransportPolicy: 'all'
+        };
+
         async function startScreenShare() {
             try {
                 console.log('[屏幕共享] 请求 getDisplayMedia...');
@@ -960,7 +973,7 @@
 
             console.log(`[屏幕共享] 创建 screenPC: user=${userId}, initiator=${isInitiator}, hasStream=${!!screenStream}`);
 
-            const pc = new RTCPeerConnection(config);
+            const pc = new RTCPeerConnection(screenConfig);
             screenPCs[userId] = pc;
 
             // 添加屏幕视频轨道
@@ -1042,6 +1055,7 @@
         }
 
         function showRemoteScreen(userId, stream) {
+            console.log(`[屏幕共享] showRemoteScreen called: ${userId}, stream id: ${stream.id}`);
             const grid = document.getElementById('videoGrid');
             let wrapper = document.getElementById('remote-video-' + userId);
             if (!wrapper) {
@@ -1051,6 +1065,7 @@
                 const video = document.createElement('video');
                 video.autoplay = true;
                 video.playsinline = true;
+                video.muted = false; // 确保不静音以允许播放
                 video.style.width = '100%';
                 video.style.maxHeight = '220px';
                 const label = document.createElement('span');
@@ -1060,7 +1075,9 @@
                 wrapper.appendChild(label);
                 grid.appendChild(wrapper);
             }
-            wrapper.querySelector('video').srcObject = stream;
+            const videoEl = wrapper.querySelector('video');
+            videoEl.srcObject = stream;
+            videoEl.play().catch(e => console.log(`[屏幕共享] play() 失败:`, e));
             document.getElementById('screenShareArea').classList.add('active');
         }
 

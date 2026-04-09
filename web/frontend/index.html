@@ -842,6 +842,19 @@
         }
 
         // ========== 摄像头/视频共享 ==========
+        let screenPCs = {};
+
+        // 视频共享专用的 ICE 配置
+        const screenConfig = {
+            iceServers: [
+                { urls: 'stun:stun.l.google.com:19302' },
+                { urls: 'stun:stun1.l.google.com:19302' },
+                { urls: 'stun:stun2.l.google.com:19302' },
+                { urls: 'turn:' + TURN_SERVER + ':3478', username: TURN_USER, credential: TURN_CRED }
+            ],
+            iceTransportPolicy: 'all'
+        };
+
         async function startScreenShare() {
             try {
                 console.log('[视频共享] 请求 getUserMedia (后置摄像头)...');
@@ -920,7 +933,7 @@
 
             console.log(`[视频共享] 创建 screenPC: user=${userId}, initiator=${isInitiator}, hasStream=${!!screenStream}`);
 
-            const pc = new RTCPeerConnection(config);
+            const pc = new RTCPeerConnection(screenConfig);
             screenPCs[userId] = pc;
 
             if (screenStream) {
@@ -995,6 +1008,7 @@
         }
 
         function showRemoteScreen(userId, stream) {
+            console.log(`[视频共享] showRemoteScreen: ${userId}, stream id: ${stream.id}`);
             const grid = document.getElementById('videoGrid');
             let wrapper = document.getElementById('remote-video-' + userId);
             if (!wrapper) {
@@ -1004,6 +1018,7 @@
                 const video = document.createElement('video');
                 video.autoplay = true;
                 video.playsinline = true;
+                video.muted = false;
                 video.style.width = '100%';
                 video.style.maxHeight = '220px';
                 const label = document.createElement('span');
@@ -1013,7 +1028,9 @@
                 wrapper.appendChild(label);
                 grid.appendChild(wrapper);
             }
-            wrapper.querySelector('video').srcObject = stream;
+            const videoEl = wrapper.querySelector('video');
+            videoEl.srcObject = stream;
+            videoEl.play().catch(e => console.log(`[视频共享] play() 失败:`, e));
             document.getElementById('screenShareArea').classList.add('active');
         }
 
