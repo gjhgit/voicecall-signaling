@@ -772,8 +772,8 @@
             ],
             iceTransportPolicy: 'all',
             iceCandidatePoolSize: 16,
-            // 优化连接参数
-            bundled: true
+            // 增强稳定性配置
+            sdpSemantics: 'unified-plan'
         };
 
         function createPeerConnection(userId, isInitiator) {
@@ -822,6 +822,7 @@
                 if (userEl) {
                     if (pc.connectionState === 'connected') {
                         userEl.classList.add('speaking');
+                        relayRetryCount[userId] = 0; // 重置失败计数
                     } else if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
                         userEl.classList.remove('speaking');
                         
@@ -849,6 +850,16 @@
                         console.log(`切换到中继模式: ${userId}`);
                         switchToRelayMode(userId);
                     }
+                }
+                
+                // 检测连接超时
+                if (pc.iceConnectionState === 'checking') {
+                    setTimeout(() => {
+                        if (pc.iceConnectionState === 'checking') {
+                            console.log(`ICE 连接超时，尝试重启 ICE`);
+                            pc.restartIce();
+                        }
+                    }, 10000);
                 }
             };
 
@@ -983,7 +994,8 @@
                 { urls: 'turn:' + TURN_SERVER + ':443', username: TURN_USER, credential: TURN_CRED }
             ],
             iceTransportPolicy: 'all',
-            iceCandidatePoolSize: 16
+            iceCandidatePoolSize: 16,
+            sdpSemantics: 'unified-plan'
         };
 
         async function startScreenShare() {
@@ -1089,10 +1101,29 @@
 
             pc.onconnectionstatechange = () => {
                 console.log(`[视频共享] 连接状态 ${userId}: ${pc.connectionState}`);
+                if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
+                    // 自动重连
+                    setTimeout(() => {
+                        if (screenPCs[userId] && (screenPCs[userId].connectionState === 'failed' || screenPCs[userId].connectionState === 'disconnected')) {
+                            console.log(`[视频共享] 连接断开，尝试重连 ${userId}`);
+                            createScreenPC(userId, true);
+                        }
+                    }, 3000);
+                }
             };
 
             pc.oniceconnectionstatechange = () => {
                 console.log(`[视频共享] ICE状态 ${userId}: ${pc.iceConnectionState}`);
+                
+                // 检测连接超时并重启 ICE
+                if (pc.iceConnectionState === 'checking') {
+                    setTimeout(() => {
+                        if (screenPCs[userId] && screenPCs[userId].iceConnectionState === 'checking') {
+                            console.log(`[视频共享] ICE 连接超时，重启 ICE`);
+                            screenPCs[userId].restartIce();
+                        }
+                    }, 10000);
+                }
             };
 
             if (isInitiator) {
@@ -1116,12 +1147,18 @@
         async function handleScreenOffer(from, payload) {
             console.log(`[视频共享] 收到来自 ${from} 的 screen-offer`);
             document.getElementById('screenShareArea').classList.add('active');
+            
             const pc = createScreenPC(from, false);
             await pc.setRemoteDescription(new RTCSessionDescription(payload));
+            
             const answer = await pc.createAnswer();
             await pc.setLocalDescription(answer);
+            
             ws.send(JSON.stringify({ type: 'screen-answer', to: from, payload: pc.localDescription }));
             console.log(`[视频共享] 已发送 screen-answer 给 ${from}`);
+            
+            // 触发 ICE 候选收集
+            console.log(`[视频共享] 开始收集 ICE 候选...`);
         }
 
         async function handleScreenAnswer(from, payload) {

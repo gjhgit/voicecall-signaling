@@ -744,7 +744,9 @@
                 { urls: 'turn:' + TURN_SERVER + ':443', username: TURN_USER, credential: TURN_CRED }
             ],
             iceTransportPolicy: 'all',
-            iceCandidatePoolSize: 16
+            iceCandidatePoolSize: 16,
+            // 增强稳定性配置
+            sdpSemantics: 'unified-plan'
         };
 
         function createPeerConnection(userId, isInitiator) {
@@ -794,6 +796,7 @@
                     if (pc.connectionState === 'connected') {
                         userEl.classList.add('speaking');
                         userEl.querySelector('.user-status').textContent = '已连接';
+                        relayRetryCount[userId] = 0; // 重置失败计数
                     } else if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
                         userEl.classList.remove('speaking');
                         userEl.querySelector('.user-status').textContent = '重连中...';
@@ -823,6 +826,16 @@
                         console.log(`切换到中继模式: ${userId}`);
                         switchToRelayMode(userId);
                     }
+                }
+                
+                // 检测连接超时并重启 ICE
+                if (pc.iceConnectionState === 'checking') {
+                    setTimeout(() => {
+                        if (pc.iceConnectionState === 'checking') {
+                            console.log(`ICE 连接超时，重启 ICE`);
+                            pc.restartIce();
+                        }
+                    }, 10000);
                 }
             };
 
@@ -975,7 +988,9 @@
                 { urls: 'turn:' + TURN_SERVER + ':443', username: TURN_USER, credential: TURN_CRED }
             ],
             iceTransportPolicy: 'all',
-            iceCandidatePoolSize: 16
+            iceCandidatePoolSize: 16,
+            // 增强稳定性配置
+            sdpSemantics: 'unified-plan'
         };
 
         async function startScreenShare() {
@@ -1106,10 +1121,29 @@
             // 连接状态
             pc.onconnectionstatechange = () => {
                 console.log(`[屏幕共享] 连接状态 ${userId}: ${pc.connectionState}`);
+                if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
+                    // 自动重连
+                    setTimeout(() => {
+                        if (screenPCs[userId] && (screenPCs[userId].connectionState === 'failed' || screenPCs[userId].connectionState === 'disconnected')) {
+                            console.log(`[屏幕共享] 连接断开，尝试重连 ${userId}`);
+                            createScreenPC(userId, true);
+                        }
+                    }, 3000);
+                }
             };
 
             pc.oniceconnectionstatechange = () => {
                 console.log(`[屏幕共享] ICE状态 ${userId}: ${pc.iceConnectionState}`);
+                
+                // 检测连接超时并重启 ICE
+                if (pc.iceConnectionState === 'checking') {
+                    setTimeout(() => {
+                        if (screenPCs[userId] && screenPCs[userId].iceConnectionState === 'checking') {
+                            console.log(`[屏幕共享] ICE 连接超时，重启 ICE`);
+                            screenPCs[userId].restartIce();
+                        }
+                    }, 10000);
+                }
             };
 
             if (isInitiator) {
@@ -1182,7 +1216,9 @@
         }
 
         function showRemoteScreen(userId, stream) {
-            console.log(`[屏幕共享] showRemoteScreen called: ${userId}, stream id: ${stream.id}`);
+            console.log(`[屏幕共享] showRemoteScreen called: ${userId}, stream id: ${stream.id}, tracks: ${stream.getTracks().length}`);
+            stream.getTracks().forEach(t => console.log(`[屏幕共享] 轨道: kind=${t.kind}, enabled=${t.enabled}`));
+            
             const grid = document.getElementById('videoGrid');
             let wrapper = document.getElementById('remote-video-' + userId);
             if (!wrapper) {
@@ -1201,10 +1237,20 @@
                 wrapper.appendChild(video);
                 wrapper.appendChild(label);
                 grid.appendChild(wrapper);
+                console.log(`[屏幕共享] 创建新视频元素 for ${userId}`);
             }
             const videoEl = wrapper.querySelector('video');
             videoEl.srcObject = stream;
-            videoEl.play().catch(e => console.log(`[屏幕共享] play() 失败:`, e));
+            
+            // 确保视频播放
+            videoEl.play().then(() => {
+                console.log(`[屏幕共享] 视频播放成功 for ${userId}`);
+            }).catch(e => {
+                console.log(`[屏幕共享] play() 失败:`, e);
+                // 尝试点击播放
+                videoEl.play().catch(() => {});
+            });
+            
             document.getElementById('screenShareArea').classList.add('active');
         }
 
