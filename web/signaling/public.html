@@ -1016,17 +1016,28 @@
             // 显示远程控制按钮
             document.getElementById('controlBtn').style.display = 'block';
 
-            // 对房间内每个用户发起屏幕共享连接
-            const users = document.querySelectorAll('.user-item');
-            console.log(`[屏幕共享] 房间内用户数: ${users.length}`);
-            if (users.length === 0) {
-                console.log(`[屏幕共享] 警告：房间内没有其他用户！`);
-            }
-            users.forEach(userEl => {
-                const userId = userEl.querySelector('.user-name').textContent;
-                console.log(`[屏幕共享] 为用户 ${userId} 创建 screenPC`);
-                createScreenPC(userId, true);
-            });
+            // 等待 WebSocket 连接稳定后再发送屏幕共享信令
+            const tryShare = () => {
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    const users = document.querySelectorAll('.user-item');
+                    console.log(`[屏幕共享] 房间内用户数: ${users.length}`);
+                    if (users.length === 0) {
+                        console.log(`[屏幕共享] 警告：房间内没有其他用户！`);
+                        // 等待一下再重试
+                        setTimeout(tryShare, 1000);
+                        return;
+                    }
+                    users.forEach(userEl => {
+                        const userId = userEl.querySelector('.user-name').textContent;
+                        console.log(`[屏幕共享] 为用户 ${userId} 创建 screenPC`);
+                        createScreenPC(userId, true);
+                    });
+                } else {
+                    console.log(`[屏幕共享] WebSocket 未连接，等待...`);
+                    setTimeout(tryShare, 500);
+                }
+            };
+            tryShare();
 
             // 监听停止事件（用户在系统层面停止共享）
             screenStream.getVideoTracks()[0].onended = () => {
