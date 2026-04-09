@@ -917,8 +917,12 @@
             // 对房间内每个用户发起屏幕共享连接
             const users = document.querySelectorAll('.user-item');
             console.log(`[屏幕共享] 房间内用户数: ${users.length}`);
+            if (users.length === 0) {
+                console.log(`[屏幕共享] 警告：房间内没有其他用户！`);
+            }
             users.forEach(userEl => {
                 const userId = userEl.querySelector('.user-name').textContent;
+                console.log(`[屏幕共享] 为用户 ${userId} 创建 screenPC`);
                 createScreenPC(userId, true);
             });
 
@@ -978,7 +982,10 @@
 
             // 添加屏幕视频轨道
             if (screenStream) {
-                screenStream.getTracks().forEach(track => pc.addTrack(track, screenStream));
+                screenStream.getTracks().forEach(track => {
+                    console.log(`[屏幕共享] 添加轨道: kind=${track.kind}, readyState=${track.readyState}`);
+                    pc.addTrack(track, screenStream);
+                });
                 console.log(`[屏幕共享] 已添加 ${screenStream.getTracks().length} 个轨道`);
             } else {
                 console.log(`[屏幕共享] 无本地屏幕流（接收方模式）`);
@@ -992,7 +999,10 @@
 
             pc.onicecandidate = (event) => {
                 if (event.candidate) {
+                    console.log(`[屏幕共享] ICE候选: ${event.candidate.type} ${event.candidate.protocol} ${event.candidate.address || event.candidate.candidate}`);
                     ws.send(JSON.stringify({ type: 'screen-ice', to: userId, payload: event.candidate }));
+                } else {
+                    console.log(`[屏幕共享] ICE候选收集完成`);
                 }
             };
 
@@ -1006,9 +1016,20 @@
             };
 
             if (isInitiator) {
+                console.log(`[屏幕共享] 创建 offer...`);
                 pc.createOffer({ offerToReceiveVideo: true, offerToReceiveAudio: false })
-                    .then(offer => pc.setLocalDescription(offer))
+                    .then(offer => {
+                        console.log(`[屏幕共享] offer创建成功`);
+                        console.log(`[屏幕共享] offer.sdp 长度: ${offer.sdp.length}`);
+                        console.log(`[屏幕共享] offer.sdp 内容预览:\n${offer.sdp.substring(0, 500)}`);
+                        return pc.setLocalDescription(offer);
+                    })
                     .then(() => {
+                        const sdp = pc.localDescription.sdp;
+                        const hasVideo = sdp.includes('m=video');
+                        const videoLine = sdp.split('\r\n').find(l => l.startsWith('m=video'));
+                        console.log(`[屏幕共享] 本地描述已设置, offer包含视频=${hasVideo}`);
+                        if (videoLine) console.log(`[屏幕共享] 视频媒体行: ${videoLine}`);
                         ws.send(JSON.stringify({ type: 'screen-offer', to: userId, payload: pc.localDescription }));
                         console.log(`[屏幕共享] 已发送 screen-offer 给 ${userId}`);
                     })
@@ -1031,6 +1052,7 @@
 
         async function handleScreenAnswer(from, payload) {
             console.log(`[屏幕共享] 收到来自 ${from} 的 screen-answer`);
+            console.log(`[屏幕共享] answer sdp=${payload.sdp.substring(0, 100)}...`);
             const pc = screenPCs[from];
             if (pc) {
                 await pc.setRemoteDescription(new RTCSessionDescription(payload));
@@ -1041,6 +1063,7 @@
         }
 
         async function handleScreenIce(from, payload) {
+            console.log(`[屏幕共享] 收到ICE from ${from}: ${payload.type} ${payload.protocol || ''}`);
             const pc = screenPCs[from];
             if (pc) {
                 try {

@@ -937,7 +937,10 @@
             screenPCs[userId] = pc;
 
             if (screenStream) {
-                screenStream.getTracks().forEach(track => pc.addTrack(track, screenStream));
+                screenStream.getTracks().forEach(track => {
+                    console.log(`[视频共享] 添加轨道: kind=${track.kind}, readyState=${track.readyState}`);
+                    pc.addTrack(track, screenStream);
+                });
                 console.log(`[视频共享] 已添加 ${screenStream.getTracks().length} 个轨道`);
             }
 
@@ -948,6 +951,7 @@
 
             pc.onicecandidate = (event) => {
                 if (event.candidate) {
+                    console.log(`[视频共享] ICE候选: ${event.candidate.type}`);
                     ws.send(JSON.stringify({ type: 'screen-ice', to: userId, payload: event.candidate }));
                 }
             };
@@ -962,8 +966,13 @@
 
             if (isInitiator) {
                 pc.createOffer({ offerToReceiveVideo: true, offerToReceiveAudio: false })
-                    .then(offer => pc.setLocalDescription(offer))
+                    .then(offer => {
+                        console.log(`[视频共享] offer创建成功, sdp长度=${offer.sdp.length}`);
+                        return pc.setLocalDescription(offer);
+                    })
                     .then(() => {
+                        const hasVideo = pc.localDescription.sdp.includes('m=video');
+                        console.log(`[视频共享] 本地描述已设置, offer包含视频=${hasVideo}`);
                         ws.send(JSON.stringify({ type: 'screen-offer', to: userId, payload: pc.localDescription }));
                         console.log(`[视频共享] 已发送 screen-offer 给 ${userId}`);
                     })
