@@ -983,9 +983,7 @@
                 { urls: 'turn:' + TURN_SERVER + ':443', username: TURN_USER, credential: TURN_CRED }
             ],
             iceTransportPolicy: 'all',
-            iceCandidatePoolSize: 16,
-            // 优化连接参数
-            bundled: true
+            iceCandidatePoolSize: 16
         };
 
         async function startScreenShare() {
@@ -1176,11 +1174,21 @@
             videoEl.play().catch(e => console.log(`[视频共享] play() 失败:`, e));
             document.getElementById('screenShareArea').classList.add('active');
             
-            // 同时设置全屏视频源
+            // 保存控制目标用户
+            controlTargetUser = userId;
+            console.log(`[视频共享] 控制目标已设置: ${controlTargetUser}`);
+            
+            // 立即设置全屏视频源
             const fullscreenVideo = document.getElementById('fullscreenVideo');
             fullscreenVideo.srcObject = stream;
             fullscreenVideo.play().catch(e => console.log(`[视频共享] 全屏play() 失败:`, e));
-            controlTargetUser = userId;
+            console.log(`[视频共享] 全屏视频源已设置`);
+            
+            // 自动打开全屏模式！
+            setTimeout(() => {
+                openFullscreen();
+                console.log(`[视频共享] 已自动打开全屏`);
+            }, 500);
         }
         
         // ========== 全屏和远程控制 ==========

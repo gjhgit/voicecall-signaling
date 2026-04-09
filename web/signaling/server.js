@@ -184,7 +184,7 @@ wss.on('connection', (ws, req) => {
 
                 // 远程控制信令
                 case 'control':
-                    console.log(`[${new Date().toLocaleTimeString()}] 远程控制: ${data.action} from=${userId}`);
+                    console.log(`[${new Date().toLocaleTimeString()}] 远程控制: ${data.action} from=${userId} to=${data.to}`);
                     sendTo(currentRoom, data.to, {
                         type: 'control',
                         from: userId,
@@ -192,6 +192,8 @@ wss.on('connection', (ws, req) => {
                         action: data.action,
                         x: data.x,
                         y: data.y,
+                        pixelX: data.pixelX,
+                        pixelY: data.pixelY,
                         button: data.button,
                         key: data.key
                     });

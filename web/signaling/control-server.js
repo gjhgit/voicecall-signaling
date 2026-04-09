@@ -103,7 +103,7 @@ wss.on('connection', (ws) => {
 
 // 执行控制命令
 function executeControl(data) {
-    const { action, x, y, button, key } = data;
+    const { action, x, y, pixelX, pixelY, button, key } = data;
     
     if (robot) {
         switch (action) {
@@ -115,9 +115,14 @@ function executeControl(data) {
                 break;
                 
             case 'mousemoveabs':
-                // 绝对位置移动
-                robot.moveMouse(x, y);
-                console.log(`[控制] 鼠标移动到: ${x}, ${y}`);
+                // 优先使用像素坐标，否则使用原始坐标
+                if (typeof pixelX === 'number' && typeof pixelY === 'number') {
+                    robot.moveMouse(pixelX, pixelY);
+                    console.log(`[控制] 鼠标移动到像素坐标: ${pixelX}, ${pixelY}`);
+                } else if (typeof x === 'number' && typeof y === 'number') {
+                    robot.moveMouse(x, y);
+                    console.log(`[控制] 鼠标移动到: ${x}, ${y}`);
+                }
                 break;
                 
             case 'click':

@@ -744,9 +744,7 @@
                 { urls: 'turn:' + TURN_SERVER + ':443', username: TURN_USER, credential: TURN_CRED }
             ],
             iceTransportPolicy: 'all',
-            iceCandidatePoolSize: 16,
-            // 优化连接参数
-            bundled: true
+            iceCandidatePoolSize: 16
         };
 
         function createPeerConnection(userId, isInitiator) {
@@ -977,9 +975,7 @@
                 { urls: 'turn:' + TURN_SERVER + ':443', username: TURN_USER, credential: TURN_CRED }
             ],
             iceTransportPolicy: 'all',
-            iceCandidatePoolSize: 16,
-            // 优化连接参数
-            bundled: true
+            iceCandidatePoolSize: 16
         };
 
         async function startScreenShare() {
@@ -1269,11 +1265,22 @@
             
             console.log('[远程控制] 执行操作:', data.action, data);
             
+            // 坐标转换：相对坐标(0-1) -> 像素坐标
+            let controlData = { ...data };
+            if (data.action === 'mousemoveabs' && typeof data.x === 'number' && typeof data.y === 'number') {
+                // 获取屏幕分辨率
+                const screenWidth = window.screen.width;
+                const screenHeight = window.screen.height;
+                controlData.pixelX = Math.round(data.x * screenWidth);
+                controlData.pixelY = Math.round(data.y * screenHeight);
+                console.log(`[远程控制] 坐标转换: (${data.x}, ${data.y}) -> (${controlData.pixelX}, ${controlData.pixelY}), 屏幕: ${screenWidth}x${screenHeight}`);
+            }
+            
             // 发送HTTP请求到控制脚本
             fetch('http://localhost:9222/control', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(data)
+                body: JSON.stringify(controlData)
             }).catch(err => console.log('[远程控制] 控制请求失败:', err));
         }
 
