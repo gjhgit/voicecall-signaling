@@ -512,6 +512,7 @@
         // ========== 配置 ==========
         let serverUrl = '';
         let ws = null;
+        let wsHeartbeatTimer = null;
         let peerConnections = {};
         let localStream = null;
         let isMuted = false;
@@ -580,18 +581,66 @@
                     joinForm.classList.remove('hidden');
                 };
 
+                ws.onopen = () => {
+                    statusEl.textContent = '已连接信令服务器';
+                    statusEl.className = 'status-text connected';
+                    connectionInfoEl.textContent = `✅ 连接成功: ${serverUrl}`;
+                    joinForm.classList.remove('hidden');
+                    
+                    // 启动心跳 - 每25秒发送一次保持连接
+                    if (wsHeartbeatTimer) clearInterval(wsHeartbeatTimer);
+                    wsHeartbeatTimer = setInterval(() => {
+                        if (ws && ws.readyState === WebSocket.OPEN) {
+                            ws.send(JSON.stringify({ type: 'ping' }));
+                        }
+                    }, 25000);
+                };
+
                 ws.onclose = () => {
-                    statusEl.textContent = '连接已断开';
+                    // 清除心跳定时器
+                    if (wsHeartbeatTimer) {
+                        clearInterval(wsHeartbeatTimer);
+                        wsHeartbeatTimer = null;
+                    }
+                    console.log('[WebSocket] 连接断开');
+                    
+                    // 清理语音通话
+                    cleanupVoiceCall();
+                    
+                    // 清理屏幕共享
+                    cleanupScreenShare();
+                    
+                    // 清理所有 PeerConnection
+                    Object.keys(peerConnections).forEach(uid => {
+                        if (peerConnections[uid]) {
+                            peerConnections[uid].close();
+                            delete peerConnections[uid];
+                        }
+                    });
+                    Object.keys(screenPCs).forEach(uid => {
+                        if (screenPCs[uid]) {
+                            screenPCs[uid].close();
+                            delete screenPCs[uid];
+                        }
+                    });
+                    
+                    // 清空用户列表
+                    usersList.innerHTML = '';
+                    
+                    statusEl.textContent = '连接已断开，正在重连...';
                     statusEl.className = 'status-text error';
-                    connectionInfoEl.textContent = '❌ 请检查服务器是否运行';
+                    connectionInfoEl.textContent = '🔄 正在重新连接...';
                     joinForm.classList.add('hidden');
                     callControls.classList.remove('active');
+                    
+                    // 延迟重连 - 3秒后重试
+                    setTimeout(() => connect(), 3000);
                 };
 
                 ws.onerror = (error) => {
                     statusEl.textContent = '连接失败';
                     statusEl.className = 'status-text error';
-                    connectionInfoEl.textContent = '❌ 无法连接到服务器，请确保服务器已启动';
+                    connectionInfoEl.textContent = '❌ 无法连接到服务器';
                     console.error('WebSocket 错误:', error);
                 };
 
@@ -848,20 +897,36 @@
                     relayRetryCount[userId] = (relayRetryCount[userId] || 0) + 1;
                     console.log(`P2P 连接失败次数: ${relayRetryCount[userId]}`);
                     
-                    if (relayRetryCount[userId] >= 3) {
-                        console.log(`切换到中继模式: ${userId}`);
+                    // 更激进的重连策略
+                    if (relayRetryCount[userId] === 1) {
+                        console.log(`首次失败，尝试重启 ICE...`);
+                        setTimeout(() => {
+                            if (pc.iceConnectionState !== 'connected') {
+                                try { pc.restartIce(); } catch(e) {}
+                            }
+                        }, 1000);
+                    } else if (relayRetryCount[userId] === 2) {
+                        console.log(`第二次失败，尝试重新创建连接...`);
+                        setTimeout(() => {
+                            if (pc.iceConnectionState !== 'connected') {
+                                closePeerConnection(userId);
+                                createPeerConnection(userId, true);
+                            }
+                        }, 2000);
+                    } else if (relayRetryCount[userId] >= 3) {
+                        console.log(`多次失败，切换到中继模式: ${userId}`);
                         switchToRelayMode(userId);
                     }
                 }
                 
-                // 检测连接超时
+                // 检测连接超时 - 5秒超时，更快响应
                 if (pc.iceConnectionState === 'checking') {
                     setTimeout(() => {
                         if (pc.iceConnectionState === 'checking') {
                             console.log(`ICE 连接超时，尝试重启 ICE`);
-                            pc.restartIce();
+                            try { pc.restartIce(); } catch(e) {}
                         }
-                    }, 10000);
+                    }, 5000);
                 }
             };
 
