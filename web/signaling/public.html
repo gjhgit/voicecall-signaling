@@ -1041,10 +1041,17 @@
 
         async function handleScreenOffer(from, payload) {
             console.log(`[屏幕共享] 收到来自 ${from} 的 screen-offer`);
+            console.log(`[屏幕共享] offer包含视频=${payload.sdp.includes('m=video')}`);
             document.getElementById('screenShareArea').classList.add('active');
             const pc = createScreenPC(from, false);
             await pc.setRemoteDescription(new RTCSessionDescription(payload));
+            console.log(`[屏幕共享] 远程描述已设置`);
             const answer = await pc.createAnswer();
+            console.log(`[屏幕共享] answer创建成功, sdp长度=${answer.sdp.length}`);
+            const hasVideo = answer.sdp.includes('m=video');
+            const videoLine = answer.sdp.split('\r\n').find(l => l.startsWith('m=video'));
+            console.log(`[屏幕共享] answer包含视频=${hasVideo}`);
+            if (videoLine) console.log(`[屏幕共享] answer视频行: ${videoLine}`);
             await pc.setLocalDescription(answer);
             ws.send(JSON.stringify({ type: 'screen-answer', to: from, payload: pc.localDescription }));
             console.log(`[屏幕共享] 已发送 screen-answer 给 ${from}`);
