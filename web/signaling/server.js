@@ -146,25 +146,26 @@ wss.on('connection', (ws, req) => {
                     }, ws);
                     break;
 
-                // 屏幕共享信令（P2P，服务器仅透传）
+                // 屏幕共享信令（只发送给指定用户）
                 case 'screen-offer':
                 case 'screen-answer':
                 case 'screen-ice':
                     console.log(`[${new Date().toLocaleTimeString()}] 屏幕信令: ${data.type} from=${userId} to=${data.to}`);
-                    broadcast(currentRoom, {
+                    sendTo(currentRoom, data.to, {
                         type: data.type,
                         from: userId,
                         to: data.to,
                         payload: data.payload
-                    }, ws);
+                    });
                     break;
 
-                // 停止屏幕共享通知
+                // 停止屏幕共享通知（广播给房间内其他所有人）
                 case 'screen-stop':
                     broadcast(currentRoom, {
                         type: 'screen-stop',
                         from: userId
                     }, ws);
+                    console.log(`[${new Date().toLocaleTimeString()}] ${userId} 停止屏幕共享`);
                     break;
 
                 // 中继模式：音频数据
@@ -244,6 +245,23 @@ function broadcast(roomId, message, exclude = null) {
             client.send(msgStr);
         }
     }
+}
+
+// 只发送给指定用户
+function sendTo(roomId, targetUserId, message) {
+    if (!rooms.has(roomId)) return;
+    
+    const room = rooms.get(roomId);
+    const msgStr = JSON.stringify(message);
+    
+    for (const client of room) {
+        if (client.userId === targetUserId && client.readyState === WebSocket.OPEN) {
+            client.send(msgStr);
+            console.log(`[${new Date().toLocaleTimeString()}] 发送给 ${targetUserId}: ${message.type}`);
+            return;
+        }
+    }
+    console.log(`[${new Date().toLocaleTimeString()}] 未找到目标用户 ${targetUserId}`);
 }
 
 function handleLeave(ws) {
