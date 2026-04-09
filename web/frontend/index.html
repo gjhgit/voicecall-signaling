@@ -650,6 +650,10 @@
                 { urls: 'stun:stun.l.google.com:19302' },
                 { urls: 'stun:stun1.l.google.com:19302' },
                 { urls: 'stun:stun2.l.google.com:19302' },
+                { urls: 'stun:stun3.l.google.com:19302' },
+                { urls: 'stun:stun4.l.google.com:19302' },
+                { urls: 'stun:stun.stunprotocol.org:3478' },
+                { urls: 'stun:stun.counterpath.com:3478' },
                 // 自定义 TURN 服务器（移动网络必需）
                 { urls: 'turn:' + TURN_SERVER + ':3478', username: TURN_USER, credential: TURN_CRED }
             ],
@@ -850,9 +854,13 @@
                 { urls: 'stun:stun.l.google.com:19302' },
                 { urls: 'stun:stun1.l.google.com:19302' },
                 { urls: 'stun:stun2.l.google.com:19302' },
-                { urls: 'turn:' + TURN_SERVER + ':3478', username: TURN_USER, credential: TURN_CRED }
+                { urls: 'stun:stun3.l.google.com:19302' },
+                { urls: 'stun:stun4.l.google.com:19302' },
+                { urls: 'stun:stun.stunprotocol.org:3478' },
+                { urls: 'stun:stun.counterpath.com:3478' },
             ],
-            iceTransportPolicy: 'all'
+            iceTransportPolicy: 'all',
+            iceCandidatePoolSize: 10
         };
 
         async function startScreenShare() {
@@ -1029,7 +1037,8 @@
                 video.playsinline = true;
                 video.muted = false;
                 video.style.width = '100%';
-                video.style.maxHeight = '220px';
+                video.style.height = 'auto';
+                video.style.maxHeight = '400px';
                 const label = document.createElement('span');
                 label.className = 'video-label';
                 label.textContent = userId + ' 的屏幕';

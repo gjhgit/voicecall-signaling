@@ -486,12 +486,36 @@
                         clearInterval(heartbeatTimer);
                     }
                     console.log('[WebSocket] 连接断开');
+
+                    // 清理语音通话
+                    cleanupVoiceCall();
+
+                    // 清理屏幕共享
+                    cleanupScreenShare();
+
+                    // 清理所有 PeerConnection
+                    Object.keys(peerConnections).forEach(uid => {
+                        if (peerConnections[uid]) {
+                            peerConnections[uid].close();
+                            delete peerConnections[uid];
+                        }
+                    });
+                    Object.keys(screenPCs).forEach(uid => {
+                        if (screenPCs[uid]) {
+                            screenPCs[uid].close();
+                            delete screenPCs[uid];
+                        }
+                    });
+
+                    // 清空用户列表
+                    usersList.innerHTML = '';
+
                     statusEl.textContent = '连接已断开，正在重连...';
                     statusEl.className = 'status-text error';
                     connectionInfoEl.textContent = '🔄 正在重新连接...';
                     joinForm.classList.add('hidden');
                     callControls.classList.remove('active');
-                    
+
                     // 延迟重连 - 3秒后重试
                     setTimeout(() => connect(), 3000);
                 };
@@ -625,6 +649,41 @@
             statusEl.textContent = `已加入房间 ${roomId}`;
         }
 
+        // ========== 清理函数 ==========
+        function cleanupVoiceCall() {
+            // 停止本地语音流
+            if (localStream) {
+                localStream.getTracks().forEach(track => track.stop());
+                localStream = null;
+            }
+            isMuted = false;
+            const muteBtn = document.getElementById('muteBtn');
+            if (muteBtn) {
+                muteBtn.textContent = '🔇 静音';
+                muteBtn.classList.remove('btn-danger');
+                muteBtn.classList.add('btn-secondary');
+            }
+        }
+
+        function cleanupScreenShare() {
+            isSharing = false;
+            if (screenStream) {
+                screenStream.getTracks().forEach(t => t.stop());
+                screenStream = null;
+            }
+            const localVideo = document.getElementById('localVideo');
+            if (localVideo) localVideo.srcObject = null;
+            document.getElementById('localVideoWrapper').style.display = 'none';
+            document.getElementById('screenShareArea').classList.remove('active');
+            // 清理远端视频
+            document.querySelectorAll('.remote-video-wrapper').forEach(el => el.remove());
+            const shareBtn = document.getElementById('shareBtn');
+            if (shareBtn) {
+                shareBtn.textContent = '🖥️ 共享屏幕';
+                shareBtn.classList.remove('sharing');
+            }
+        }
+
         // ========== 离开房间 ==========
         function leaveRoom() {
             // 停止屏幕共享
@@ -666,6 +725,11 @@
                 { urls: 'stun:stun.l.google.com:19302' },
                 { urls: 'stun:stun1.l.google.com:19302' },
                 { urls: 'stun:stun2.l.google.com:19302' },
+                { urls: 'stun:stun3.l.google.com:19302' },
+                { urls: 'stun:stun4.l.google.com:19302' },
+                // 额外 STUN 服务器
+                { urls: 'stun:stun.stunprotocol.org:3478' },
+                { urls: 'stun:stun.counterpath.com:3478' },
                 // 自定义 TURN 服务器（移动网络必需）
                 { urls: 'turn:' + TURN_SERVER + ':3478', username: TURN_USER, credential: TURN_CRED }
             ],
@@ -884,10 +948,17 @@
                 // Google 公共 STUN 服务器
                 { urls: 'stun:stun.l.google.com:19302' },
                 { urls: 'stun:stun1.l.google.com:19302' },
-                // TURN 服务器（备用，暂时注释掉排查问题）
-                // { urls: 'turn:' + TURN_SERVER + ':3478', username: TURN_USER, credential: TURN_CRED }
+                { urls: 'stun:stun2.l.google.com:19302' },
+                { urls: 'stun:stun3.l.google.com:19302' },
+                { urls: 'stun:stun4.l.google.com:19302' },
+                // 额外 STUN 服务器
+                { urls: 'stun:stun.stunprotocol.org:3478' },
+                { urls: 'stun:stun.counterpath.com:3478' },
             ],
-            iceTransportPolicy: 'all'
+            iceTransportPolicy: 'all',
+            iceCandidatePoolSize: 10,
+            // 绑定刷新间隔（毫秒）
+            iceConnectionReceiveWindow: 512 * 1024
         };
 
         async function startScreenShare() {
