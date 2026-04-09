@@ -513,7 +513,14 @@
         let serverUrl = '';
         let ws = null;
         let wsHeartbeatTimer = null;
+        let isReconnecting = false;
+        let reconnectAttempts = 0;
+        const MAX_RECONNECT_ATTEMPTS = 10;
         let peerConnections = {};
+        let connectionHealthTimer = null;
+        let currentRoomId = '';
+        let currentUserId = '';
+        let relayRetryCount = {};
         let localStream = null;
         let isMuted = false;
         
@@ -585,15 +592,34 @@
                     statusEl.textContent = '已连接信令服务器';
                     statusEl.className = 'status-text connected';
                     connectionInfoEl.textContent = `✅ 连接成功: ${serverUrl}`;
-                    joinForm.classList.remove('hidden');
                     
-                    // 启动心跳 - 每25秒发送一次保持连接
+                    // 重置重连计数
+                    reconnectAttempts = 0;
+                    isReconnecting = false;
+                    
+                    // 如果之前在房间里，重新加入
+                    if (currentRoomId && currentUserId) {
+                        statusEl.textContent = `正在恢复房间 ${currentRoomId}...`;
+                        setTimeout(() => {
+                            if (ws && ws.readyState === WebSocket.OPEN) {
+                                ws.send(JSON.stringify({
+                                    type: 'join',
+                                    roomId: currentRoomId,
+                                    userId: currentUserId
+                                }));
+                            }
+                        }, 500);
+                    } else {
+                        joinForm.classList.remove('hidden');
+                    }
+                    
+                    // 启动心跳 - 每20秒发送一次
                     if (wsHeartbeatTimer) clearInterval(wsHeartbeatTimer);
                     wsHeartbeatTimer = setInterval(() => {
                         if (ws && ws.readyState === WebSocket.OPEN) {
                             ws.send(JSON.stringify({ type: 'ping' }));
                         }
-                    }, 25000);
+                    }, 20000);
                 };
 
                 ws.onclose = () => {
@@ -602,46 +628,39 @@
                         clearInterval(wsHeartbeatTimer);
                         wsHeartbeatTimer = null;
                     }
+                    
+                    // 页面卸载时不重连
+                    if (document.hidden) {
+                        console.log('[WebSocket] 页面隐藏，停止重连');
+                        return;
+                    }
+                    
                     console.log('[WebSocket] 连接断开');
                     
-                    // 清理语音通话
-                    cleanupVoiceCall();
+                    // 保持通话状态，清空但不关闭 PeerConnection
+                    // 这样重连后可以快速恢复
                     
-                    // 清理屏幕共享
-                    cleanupScreenShare();
-                    
-                    // 清理所有 PeerConnection
-                    Object.keys(peerConnections).forEach(uid => {
-                        if (peerConnections[uid]) {
-                            peerConnections[uid].close();
-                            delete peerConnections[uid];
-                        }
-                    });
-                    Object.keys(screenPCs).forEach(uid => {
-                        if (screenPCs[uid]) {
-                            screenPCs[uid].close();
-                            delete screenPCs[uid];
-                        }
-                    });
-                    
-                    // 清空用户列表
-                    usersList.innerHTML = '';
-                    
-                    statusEl.textContent = '连接已断开，正在重连...';
+                    statusEl.textContent = '连接中断，正在重连...';
                     statusEl.className = 'status-text error';
-                    connectionInfoEl.textContent = '🔄 正在重新连接...';
-                    joinForm.classList.add('hidden');
-                    callControls.classList.remove('active');
+                    connectionInfoEl.textContent = '🔄 正在重连...';
                     
-                    // 延迟重连 - 3秒后重试
-                    setTimeout(() => connect(), 3000);
+                    // 指数退避重连
+                    reconnectAttempts++;
+                    const delay = Math.min(1000 * Math.pow(1.5, reconnectAttempts - 1), 10000);
+                    console.log(`重连尝试 ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS}，${delay/1000}秒后重试`);
+                    
+                    if (reconnectAttempts <= MAX_RECONNECT_ATTEMPTS) {
+                        isReconnecting = true;
+                        setTimeout(() => connect(), delay);
+                    } else {
+                        statusEl.textContent = '连接失败';
+                        connectionInfoEl.textContent = '❌ 无法连接服务器，请检查网络';
+                    }
                 };
 
                 ws.onerror = (error) => {
-                    statusEl.textContent = '连接失败';
-                    statusEl.className = 'status-text error';
-                    connectionInfoEl.textContent = '❌ 无法连接到服务器';
                     console.error('WebSocket 错误:', error);
+                    // 不立即更新UI，让 onclose 处理
                 };
 
                 ws.onmessage = handleMessage;
@@ -736,21 +755,33 @@
                 return;
             }
 
+            // 保存房间状态
+            currentRoomId = roomId;
+            currentUserId = userName;
+
             if (!ws || ws.readyState !== WebSocket.OPEN) {
                 connect();
-                setTimeout(() => joinRoom(), 1000);
+                setTimeout(() => joinRoom(), 2000);
                 return;
             }
 
-            // 获取本地音频流
-            try {
-                localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                statusEl.textContent = '已获取麦克风权限';
-                statusEl.className = 'status-text connected';
-            } catch (error) {
-                console.error('获取麦克风失败:', error);
-                alert('无法访问麦克风，请检查权限设置');
-                return;
+            // 获取本地音频流（如果还没有）
+            if (!localStream) {
+                try {
+                    localStream = await navigator.mediaDevices.getUserMedia({ 
+                        audio: {
+                            echoCancellation: true,
+                            noiseSuppression: true,
+                            autoGainControl: true
+                        }
+                    });
+                    statusEl.textContent = '已获取麦克风权限';
+                    statusEl.className = 'status-text connected';
+                } catch (error) {
+                    console.error('获取麦克风失败:', error);
+                    alert('无法访问麦克风，请检查权限设置');
+                    return;
+                }
             }
 
             // 发送加入房间消息
@@ -768,6 +799,11 @@
 
         // ========== 离开房间 ==========
         function leaveRoom() {
+            // 清除房间状态
+            currentRoomId = '';
+            currentUserId = '';
+            reconnectAttempts = 0;
+            
             // 停止摄像头共享
             stopScreenShare();
 
@@ -796,12 +832,12 @@
         }
 
         // ========== P2P 连接管理 ==========
-        // 使用 Metered.ca 免费 TURN 服务（每月 500MB 免费额度）
-        // 注册获取 API Key: https://www.metered.ca/tools/openrelay/
+        // 使用多个免费的 TURN 服务器提供备份
         const TURN_SERVER = 'openrelay.metered.ca';
         const TURN_USER = 'openrelay';
         const TURN_CRED = 'openrelay';
 
+        // 优化的 ICE 配置 - 更稳定
         const config = {
             iceServers: [
                 // Google STUN 服务器
@@ -812,36 +848,83 @@
                 { urls: 'stun:stun4.l.google.com:19302' },
                 // Twilio STUN 服务器
                 { urls: 'stun:global.stun.twilio.com:3478' },
-                // 额外 STUN 服务器
-                { urls: 'stun:stun.stunprotocol.org:3478' },
-                { urls: 'stun:stun.counterpath.com:3478' },
-                { urls: 'stun:stun.qq.com:3478' },
-                // Metered.ca 免费 TURN 服务器（移动网络必需）
-                { urls: 'turn:' + TURN_SERVER + ':80', username: TURN_USER, credential: TURN_CRED },
-                { urls: 'turn:' + TURN_SERVER + ':443', username: TURN_USER, credential: TURN_CRED },
-                { urls: 'turns:' + TURN_SERVER + ':443', username: TURN_USER, credential: TURN_CRED }
+                // Metered.ca TURN 服务器（主）
+                { urls: 'turn:openrelay.metered.ca:80', username: 'openrelay', credential: 'openrelay' },
+                { urls: 'turn:openrelay.metered.ca:443', username: 'openrelay', credential: 'openrelay' },
+                { urls: 'turns:openrelay.metered.ca:443', username: 'openrelay', credential: 'openrelay' },
+                // Xirsys TURN 服务器（备用，免费额度）
+                { urls: 'turn:global.turn.twilio.com:3478?transport=udp', username: '', credential: '' },
+                { urls: 'turn:global.turn.twilio.com:3478?transport=tcp', username: '', credential: '' }
             ],
             iceTransportPolicy: 'all',
-            iceCandidatePoolSize: 16,
-            // 增强稳定性配置
-            sdpSemantics: 'unified-plan'
+            iceCandidatePoolSize: 20,
+            sdpSemantics: 'unified-plan',
+            // 关键：更保守的 ICE 设置，减少断开
+            iceConnectionReceivingTimeout: 25000,  // 25秒无活动才认为断开
+            iceBackupCandidatePairPollInterval: 10000  // 备份候选检测间隔
         };
 
         function createPeerConnection(userId, isInitiator) {
+            // 如果已存在连接，先关闭再重建（确保干净）
             if (peerConnections[userId]) {
-                return peerConnections[userId];
+                peerConnections[userId].close();
+                delete peerConnections[userId];
             }
 
-            console.log(`创建 P2P 连接: ${isInitiator ? '发起方' : '接收方'}`);
+            console.log(`创建 P2P 连接: ${isInitiator ? '发起方' : '接收方'} - ${userId}`);
 
             const pc = new RTCPeerConnection(config);
             peerConnections[userId] = pc;
+            let dataChannel = null;
+            let pingTimer = null;
 
             // 添加本地流
             if (localStream) {
                 localStream.getTracks().forEach(track => {
                     pc.addTrack(track, localStream);
                 });
+            }
+
+            // 创建数据通道用于保活
+            if (isInitiator) {
+                dataChannel = pc.createDataChannel('heartbeat', { ordered: true });
+                setupDataChannel(dataChannel, userId);
+            }
+
+            // 监听数据通道
+            pc.ondatachannel = (event) => {
+                console.log(`收到数据通道: ${userId}`);
+                dataChannel = event.channel;
+                setupDataChannel(dataChannel, userId);
+            };
+
+            function setupDataChannel(dc, uid) {
+                dc.onopen = () => {
+                    console.log(`数据通道已打开: ${uid}`);
+                    // 启动数据通道心跳
+                    if (pingTimer) clearInterval(pingTimer);
+                    pingTimer = setInterval(() => {
+                        if (dc.readyState === 'open') {
+                            try {
+                                dc.send(JSON.stringify({ type: 'ping' }));
+                            } catch(e) {
+                                console.log(`数据通道 ping 失败: ${e.message}`);
+                            }
+                        }
+                    }, 5000);
+                };
+                dc.onclose = () => {
+                    console.log(`数据通道已关闭: ${uid}`);
+                    if (pingTimer) clearInterval(pingTimer);
+                };
+                dc.onmessage = (event) => {
+                    try {
+                        const data = JSON.parse(event.data);
+                        if (data.type === 'pong') {
+                            console.log(`收到 pong: ${uid}`);
+                        }
+                    } catch(e) {}
+                };
             }
 
             // 处理远程流
@@ -864,71 +947,52 @@
                 }
             };
 
-            // 连接状态变化
+            // 连接状态变化 - 更保守的处理
             pc.onconnectionstatechange = () => {
                 console.log(`连接状态: ${userId} - ${pc.connectionState}`);
                 
-                // 根据连接状态更新UI
                 const userEl = document.getElementById('user-' + userId);
                 if (userEl) {
                     if (pc.connectionState === 'connected') {
                         userEl.classList.add('speaking');
-                        relayRetryCount[userId] = 0; // 重置失败计数
+                        relayRetryCount[userId] = 0;
                     } else if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
                         userEl.classList.remove('speaking');
-                        
-                        // 自动重连（移动网络专用）
-                        setTimeout(() => {
-                            if (pc.connectionState !== 'connected') {
-                                console.log(`尝试重新连接 ${userId}`);
-                                closePeerConnection(userId);
-                                createPeerConnection(userId, true);
-                            }
-                        }, 3000);
                     }
                 }
             };
             
-            // ICE 连接状态
+            // ICE 连接状态 - 更稳定的处理
             pc.oniceconnectionstatechange = () => {
                 console.log(`ICE 状态: ${userId} - ${pc.iceConnectionState}`);
                 
-                if (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'disconnected') {
+                if (pc.iceConnectionState === 'failed') {
                     relayRetryCount[userId] = (relayRetryCount[userId] || 0) + 1;
-                    console.log(`P2P 连接失败次数: ${relayRetryCount[userId]}`);
+                    console.log(`ICE 失败次数: ${relayRetryCount[userId]}`);
                     
-                    // 更激进的重连策略
-                    if (relayRetryCount[userId] === 1) {
-                        console.log(`首次失败，尝试重启 ICE...`);
-                        setTimeout(() => {
-                            if (pc.iceConnectionState !== 'connected') {
-                                try { pc.restartIce(); } catch(e) {}
-                            }
-                        }, 1000);
-                    } else if (relayRetryCount[userId] === 2) {
-                        console.log(`第二次失败，尝试重新创建连接...`);
-                        setTimeout(() => {
-                            if (pc.iceConnectionState !== 'connected') {
-                                closePeerConnection(userId);
-                                createPeerConnection(userId, true);
-                            }
-                        }, 2000);
-                    } else if (relayRetryCount[userId] >= 3) {
-                        console.log(`多次失败，切换到中继模式: ${userId}`);
-                        switchToRelayMode(userId);
-                    }
-                }
-                
-                // 检测连接超时 - 5秒超时，更快响应
-                if (pc.iceConnectionState === 'checking') {
+                    // 指数退避重连
+                    const delay = Math.min(1000 * Math.pow(2, relayRetryCount[userId] - 1), 10000);
                     setTimeout(() => {
-                        if (pc.iceConnectionState === 'checking') {
-                            console.log(`ICE 连接超时，尝试重启 ICE`);
-                            try { pc.restartIce(); } catch(e) {}
+                        if (pc.iceConnectionState !== 'connected' && !document.hidden) {
+                            console.log(`${delay/1000}秒后重连 ${userId}`);
+                            closePeerConnection(userId);
+                            createPeerConnection(userId, true);
                         }
-                    }, 5000);
+                    }, delay);
                 }
             };
+            
+            // 定期健康检查
+            const healthCheck = setInterval(() => {
+                if (document.hidden) return; // 页面隐藏时不检查
+                
+                if (pc.iceConnectionState === 'checking') {
+                    console.log(`ICE 检查中...`);
+                }
+                if (pc.connectionState === 'connected' && dataChannel && dataChannel.readyState !== 'open') {
+                    console.log(`数据通道断开，尝试重建`);
+                }
+            }, 15000);
 
             // 发起通话
             if (isInitiator) {

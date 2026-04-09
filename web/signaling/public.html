@@ -411,6 +411,11 @@
         // ========== 配置 ==========
         let serverUrl = '';
         let ws = null;
+        let heartbeatTimer = null;
+        let reconnectAttempts = 0;
+        const MAX_RECONNECT_ATTEMPTS = 10;
+        let currentRoomId = '';
+        let currentUserId = '';
         let peerConnections = {};
         let localStream = null;
         let isMuted = false;
@@ -486,45 +491,33 @@
                     if (heartbeatTimer) {
                         clearInterval(heartbeatTimer);
                     }
+                    
+                    // 页面卸载时不重连
+                    if (document.hidden) {
+                        console.log('[WebSocket] 页面隐藏，停止重连');
+                        return;
+                    }
+                    
                     console.log('[WebSocket] 连接断开');
 
-                    // 清理语音通话
-                    cleanupVoiceCall();
-
-                    // 清理屏幕共享
-                    cleanupScreenShare();
-
-                    // 清理所有 PeerConnection
-                    Object.keys(peerConnections).forEach(uid => {
-                        if (peerConnections[uid]) {
-                            peerConnections[uid].close();
-                            delete peerConnections[uid];
-                        }
-                    });
-                    Object.keys(screenPCs).forEach(uid => {
-                        if (screenPCs[uid]) {
-                            screenPCs[uid].close();
-                            delete screenPCs[uid];
-                        }
-                    });
-
-                    // 清空用户列表
-                    usersList.innerHTML = '';
-
-                    statusEl.textContent = '连接已断开，正在重连...';
+                    statusEl.textContent = '连接中断，正在重连...';
                     statusEl.className = 'status-text error';
-                    connectionInfoEl.textContent = '🔄 正在重新连接...';
-                    joinForm.classList.add('hidden');
-                    callControls.classList.remove('active');
-
-                    // 延迟重连 - 3秒后重试
-                    setTimeout(() => connect(), 3000);
+                    connectionInfoEl.textContent = '🔄 正在重连...';
+                    
+                    // 指数退避重连
+                    reconnectAttempts++;
+                    const delay = Math.min(1000 * Math.pow(1.5, reconnectAttempts - 1), 10000);
+                    console.log(`重连尝试 ${reconnectAttempts}，${delay/1000}秒后重试`);
+                    
+                    if (reconnectAttempts <= MAX_RECONNECT_ATTEMPTS) {
+                        setTimeout(() => connect(), delay);
+                    } else {
+                        statusEl.textContent = '连接失败';
+                        connectionInfoEl.textContent = '❌ 无法连接服务器';
+                    }
                 };
 
                 ws.onerror = (error) => {
-                    statusEl.textContent = '连接失败';
-                    statusEl.className = 'status-text error';
-                    connectionInfoEl.textContent = '❌ 无法连接到服务器，请确保服务器已启动';
                     console.error('WebSocket 错误:', error);
                 };
 
@@ -720,11 +713,11 @@
         }
 
         // ========== P2P 连接管理 ==========
-        // 使用 Metered.ca 免费 TURN 服务（每月 500MB 免费额度）
         const TURN_SERVER = 'openrelay.metered.ca';
         const TURN_USER = 'openrelay';
         const TURN_CRED = 'openrelay';
 
+        // 优化的 ICE 配置 - 更稳定
         const config = {
             iceServers: [
                 // Google STUN 服务器
@@ -735,18 +728,21 @@
                 { urls: 'stun:stun4.l.google.com:19302' },
                 // Twilio STUN 服务器
                 { urls: 'stun:global.stun.twilio.com:3478' },
-                // 额外 STUN 服务器
-                { urls: 'stun:stun.stunprotocol.org:3478' },
-                { urls: 'stun:stun.counterpath.com:3478' },
-                { urls: 'stun:stun.qq.com:3478' },
-                // Metered.ca 免费 TURN 服务器（移动网络必需）
-                { urls: 'turn:' + TURN_SERVER + ':80', username: TURN_USER, credential: TURN_CRED },
-                { urls: 'turn:' + TURN_SERVER + ':443', username: TURN_USER, credential: TURN_CRED },
-                { urls: 'turns:' + TURN_SERVER + ':443', username: TURN_USER, credential: TURN_CRED }
+                // Metered.ca TURN 服务器（主）
+                { urls: 'turn:openrelay.metered.ca:80', username: 'openrelay', credential: 'openrelay' },
+                { urls: 'turn:openrelay.metered.ca:443', username: 'openrelay', credential: 'openrelay' },
+                { urls: 'turns:openrelay.metered.ca:443', username: 'openrelay', credential: 'openrelay' },
+                // Twilio TURN 服务器（备用）
+                { urls: 'turn:global.turn.twilio.com:3478?transport=udp', username: '', credential: '' },
+                { urls: 'turn:global.turn.twilio.com:3478?transport=tcp', username: '', credential: '' }
             ],
             iceTransportPolicy: 'all',
-            iceCandidatePoolSize: 16,
-            // 增强稳定性配置
+            iceCandidatePoolSize: 20,
+            sdpSemantics: 'unified-plan',
+            // 更保守的 ICE 设置，减少断开
+            iceConnectionReceivingTimeout: 25000,
+            iceBackupCandidatePairPollInterval: 10000
+        };
             sdpSemantics: 'unified-plan'
         };
 
@@ -818,25 +814,19 @@
             pc.oniceconnectionstatechange = () => {
                 console.log(`ICE 状态: ${userId} - ${pc.iceConnectionState}`);
                 
-                // 如果 P2P 连接失败超过3次，切换到中继模式
-                if (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'disconnected') {
+                // ICE 连接失败 - 使用指数退避重连
+                if (pc.iceConnectionState === 'failed') {
                     relayRetryCount[userId] = (relayRetryCount[userId] || 0) + 1;
-                    console.log(`P2P 连接失败次数: ${relayRetryCount[userId]}`);
+                    console.log(`ICE 失败次数: ${relayRetryCount[userId]}`);
                     
-                    if (relayRetryCount[userId] >= 3) {
-                        console.log(`切换到中继模式: ${userId}`);
-                        switchToRelayMode(userId);
-                    }
-                }
-                
-                // 检测连接超时并重启 ICE
-                if (pc.iceConnectionState === 'checking') {
+                    const delay = Math.min(1000 * Math.pow(2, relayRetryCount[userId] - 1), 10000);
                     setTimeout(() => {
-                        if (pc.iceConnectionState === 'checking') {
-                            console.log(`ICE 连接超时，重启 ICE`);
-                            pc.restartIce();
+                        if (pc.iceConnectionState !== 'connected' && !document.hidden) {
+                            console.log(`${delay/1000}秒后重连 ${userId}`);
+                            closePeerConnection(userId);
+                            createPeerConnection(userId, true);
                         }
-                    }, 10000);
+                    }, delay);
                 }
             };
 
