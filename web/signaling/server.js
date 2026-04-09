@@ -15,6 +15,10 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const HTTPS_PORT = process.env.HTTPS_PORT || 3443;
 
+// 静态文件服务
+app.use(express.static(__dirname));
+console.log('📁 静态文件目录:', __dirname);
+
 // 加载SSL证书
 let server, wss;
 const certPath = path.join(__dirname, 'server.crt');
@@ -66,9 +70,12 @@ app.use((req, res, next) => {
 const frontendPath = path.join(__dirname, 'public.html');
 if (fs.existsSync(frontendPath)) {
     app.get('/', (req, res) => res.sendFile(frontendPath));
+    app.get('/public.html', (req, res) => res.sendFile(frontendPath));
     console.log('📄 前端页面已加载: public.html');
 } else {
     console.log('⚠️  未找到前端页面 public.html');
+    console.log('📁 __dirname:', __dirname);
+    console.log('📁 目录内容:', fs.readdirSync(__dirname));
 }
 
 // 健康检查
