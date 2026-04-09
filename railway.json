@@ -9,6 +9,7 @@
   "deploy": {
     "numInstances": 1,
     "restartPolicyType": "ON_FAILURE",
-    "restartPolicyDelay": 5
+    "restartPolicyDelay": 5,
+    "timeout": 300
   }
 }

@@ -247,7 +247,7 @@ function relayAudio(senderWs, data) {
     }
 }
 
-// 全局心跳检查
+// 全局心跳检查 - 每15秒检查一次，保持 Railway 连接活跃
 setInterval(() => {
     wss.clients.forEach((ws) => {
         if (!ws.isAlive) {
@@ -257,7 +257,7 @@ setInterval(() => {
         ws.isAlive = false;
         ws.ping();
     });
-}, 30000);
+}, 15000);
 
 function broadcast(roomId, message, exclude = null) {
     if (!rooms.has(roomId)) return;

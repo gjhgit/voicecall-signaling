@@ -478,12 +478,12 @@
                     connectionInfoEl.textContent = `✅ 连接成功: ${serverUrl}`;
                     joinForm.classList.remove('hidden');
                     
-                    // 启动心跳 - 每25秒发送一次
+                    // 启动心跳 - 每10秒发送一次，保持 Railway 连接
                     heartbeatTimer = setInterval(() => {
                         if (ws && ws.readyState === WebSocket.OPEN) {
                             ws.send(JSON.stringify({ type: 'ping' }));
                         }
-                    }, 25000);
+                    }, 10000);
                 };
 
                 ws.onclose = () => {
