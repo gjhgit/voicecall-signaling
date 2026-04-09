@@ -158,6 +158,7 @@ wss.on('connection', (ws, req) => {
                 case 'screen-answer':
                 case 'screen-ice':
                     console.log(`[${new Date().toLocaleTimeString()}] 屏幕信令: ${data.type} from=${userId} to=${data.to}`);
+                    console.log(`[${new Date().toLocaleTimeString()}] 房间 ${currentRoom} 内用户:`, Array.from(rooms.get(currentRoom) || []).map(c => c.userId));
                     sendTo(currentRoom, data.to, {
                         type: data.type,
                         from: userId,
