@@ -278,6 +278,69 @@
             width: 0%;
             transition: width 0.1s;
         }
+
+        /* 屏幕共享区域 */
+        .screen-share-area {
+            display: none;
+            margin-top: 16px;
+        }
+
+        .screen-share-area.active {
+            display: block;
+        }
+
+        .screen-share-area h3 {
+            font-size: 14px;
+            color: #aaa;
+            margin-bottom: 10px;
+        }
+
+        .video-grid {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .video-wrapper {
+            position: relative;
+            background: #000;
+            border-radius: 10px;
+            overflow: hidden;
+            border: 1px solid rgba(255,255,255,0.15);
+        }
+
+        .video-wrapper video {
+            width: 100%;
+            max-height: 220px;
+            display: block;
+            object-fit: contain;
+            background: #111;
+        }
+
+        .video-label {
+            position: absolute;
+            bottom: 6px;
+            left: 8px;
+            background: rgba(0,0,0,0.6);
+            color: #fff;
+            font-size: 12px;
+            padding: 2px 8px;
+            border-radius: 4px;
+        }
+
+        .btn-share {
+            background: linear-gradient(135deg, #6366f1, #4f46e5);
+            color: white;
+            border: none;
+        }
+
+        .btn-share:hover {
+            opacity: 0.85;
+        }
+
+        .btn-share.sharing {
+            background: linear-gradient(135deg, #f97316, #ea580c);
+        }
     </style>
 </head>
 <body>
@@ -324,7 +387,20 @@
                 <button class="btn btn-primary" id="callBtn">📞 发起通话</button>
             </div>
 
-            <button class="btn btn-danger" id="leaveBtn" style="margin-top: 12px;">离开房间</button>
+            <button class="btn btn-share" id="shareBtn" style="margin-top: 12px; width: 100%;">🖥️ 共享屏幕</button>
+            <button class="btn btn-danger" id="leaveBtn" style="margin-top: 8px;">离开房间</button>
+
+            <!-- 屏幕共享视频区域 -->
+            <div class="screen-share-area" id="screenShareArea">
+                <h3>📺 屏幕共享</h3>
+                <div class="video-grid" id="videoGrid">
+                    <!-- 本地屏幕 -->
+                    <div class="video-wrapper" id="localVideoWrapper" style="display:none;">
+                        <video id="localVideo" autoplay muted playsinline></video>
+                        <span class="video-label">我的屏幕</span>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <p class="hint">💡 同一房间内的用户可以互相通话</p>
@@ -337,6 +413,11 @@
         let peerConnections = {};
         let localStream = null;
         let isMuted = false;
+        
+        // 屏幕共享相关
+        let screenStream = null;
+        let isSharing = false;
+        let screenTracks = {}; // { userId: videoElement }
         
         // 中继模式相关
         let relayMode = {};  // { userId: true/false }
@@ -480,6 +561,22 @@
                     relayMode[data.from] = true;
                     switchToRelayMode(data.from);
                     break;
+
+                case 'screen-offer':
+                    await handleScreenOffer(data.from, data.payload);
+                    break;
+
+                case 'screen-answer':
+                    await handleScreenAnswer(data.from, data.payload);
+                    break;
+
+                case 'screen-ice':
+                    await handleScreenIce(data.from, data.payload);
+                    break;
+
+                case 'screen-stop':
+                    removeRemoteScreen(data.from);
+                    break;
             }
         }
 
@@ -529,6 +626,9 @@
 
         // ========== 离开房间 ==========
         function leaveRoom() {
+            // 停止屏幕共享
+            stopScreenShare();
+
             // 关闭所有 PeerConnection
             Object.keys(peerConnections).forEach(userId => {
                 closePeerConnection(userId);
@@ -774,6 +874,175 @@
             source.start();
         }
 
+        // ========== 屏幕共享 ==========
+        let screenPCs = {}; // 专门用于屏幕共享的 PeerConnection
+
+        async function startScreenShare() {
+            try {
+                screenStream = await navigator.mediaDevices.getDisplayMedia({
+                    video: { frameRate: 15, width: { ideal: 1280 }, height: { ideal: 720 } },
+                    audio: false
+                });
+            } catch (e) {
+                console.log('屏幕共享取消或失败:', e);
+                return;
+            }
+
+            isSharing = true;
+            const shareBtn = document.getElementById('shareBtn');
+            shareBtn.textContent = '⏹️ 停止共享';
+            shareBtn.classList.add('sharing');
+
+            // 显示本地预览
+            const localVideo = document.getElementById('localVideo');
+            localVideo.srcObject = screenStream;
+            document.getElementById('localVideoWrapper').style.display = 'block';
+            document.getElementById('screenShareArea').classList.add('active');
+
+            // 对房间内每个用户发起屏幕共享连接
+            const users = document.querySelectorAll('.user-item');
+            users.forEach(userEl => {
+                const userId = userEl.querySelector('.user-name').textContent;
+                createScreenPC(userId, true);
+            });
+
+            // 监听停止事件（用户在系统层面停止共享）
+            screenStream.getVideoTracks()[0].onended = () => {
+                stopScreenShare();
+            };
+        }
+
+        function stopScreenShare() {
+            if (!isSharing) return;
+            isSharing = false;
+
+            if (screenStream) {
+                screenStream.getTracks().forEach(t => t.stop());
+                screenStream = null;
+            }
+
+            // 关闭所有屏幕共享 PC
+            Object.keys(screenPCs).forEach(uid => {
+                if (screenPCs[uid]) {
+                    screenPCs[uid].close();
+                    delete screenPCs[uid];
+                }
+            });
+
+            // 通知对端停止
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'screen-stop' }));
+            }
+
+            // 隐藏本地预览
+            document.getElementById('localVideoWrapper').style.display = 'none';
+            document.getElementById('localVideo').srcObject = null;
+
+            // 如果没有远端屏幕，收起区域
+            const remoteVideos = document.querySelectorAll('.remote-video-wrapper');
+            if (remoteVideos.length === 0) {
+                document.getElementById('screenShareArea').classList.remove('active');
+            }
+
+            const shareBtn = document.getElementById('shareBtn');
+            shareBtn.textContent = '🖥️ 共享屏幕';
+            shareBtn.classList.remove('sharing');
+        }
+
+        function createScreenPC(userId, isInitiator) {
+            if (screenPCs[userId]) {
+                screenPCs[userId].close();
+                delete screenPCs[userId];
+            }
+
+            const pc = new RTCPeerConnection(config);
+            screenPCs[userId] = pc;
+
+            // 添加屏幕视频轨道
+            if (screenStream) {
+                screenStream.getTracks().forEach(track => pc.addTrack(track, screenStream));
+            }
+
+            // 收到对方的屏幕流
+            pc.ontrack = (event) => {
+                console.log(`收到 ${userId} 的屏幕流`);
+                showRemoteScreen(userId, event.streams[0]);
+            };
+
+            pc.onicecandidate = (event) => {
+                if (event.candidate) {
+                    ws.send(JSON.stringify({ type: 'screen-ice', to: userId, payload: event.candidate }));
+                }
+            };
+
+            if (isInitiator) {
+                pc.createOffer({ offerToReceiveVideo: true })
+                    .then(offer => pc.setLocalDescription(offer))
+                    .then(() => {
+                        ws.send(JSON.stringify({ type: 'screen-offer', to: userId, payload: pc.localDescription }));
+                    });
+            }
+
+            return pc;
+        }
+
+        async function handleScreenOffer(from, payload) {
+            document.getElementById('screenShareArea').classList.add('active');
+            const pc = createScreenPC(from, false);
+            await pc.setRemoteDescription(new RTCSessionDescription(payload));
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
+            ws.send(JSON.stringify({ type: 'screen-answer', to: from, payload: pc.localDescription }));
+        }
+
+        async function handleScreenAnswer(from, payload) {
+            const pc = screenPCs[from];
+            if (pc) await pc.setRemoteDescription(new RTCSessionDescription(payload));
+        }
+
+        async function handleScreenIce(from, payload) {
+            const pc = screenPCs[from];
+            if (pc) {
+                try { await pc.addIceCandidate(new RTCIceCandidate(payload)); } catch(e) {}
+            }
+        }
+
+        function showRemoteScreen(userId, stream) {
+            const grid = document.getElementById('videoGrid');
+            let wrapper = document.getElementById('remote-video-' + userId);
+            if (!wrapper) {
+                wrapper = document.createElement('div');
+                wrapper.className = 'video-wrapper remote-video-wrapper';
+                wrapper.id = 'remote-video-' + userId;
+                const video = document.createElement('video');
+                video.autoplay = true;
+                video.playsinline = true;
+                video.style.width = '100%';
+                video.style.maxHeight = '220px';
+                const label = document.createElement('span');
+                label.className = 'video-label';
+                label.textContent = userId + ' 的屏幕';
+                wrapper.appendChild(video);
+                wrapper.appendChild(label);
+                grid.appendChild(wrapper);
+            }
+            wrapper.querySelector('video').srcObject = stream;
+            document.getElementById('screenShareArea').classList.add('active');
+        }
+
+        function removeRemoteScreen(userId) {
+            const wrapper = document.getElementById('remote-video-' + userId);
+            if (wrapper) wrapper.remove();
+            if (screenPCs[userId]) {
+                screenPCs[userId].close();
+                delete screenPCs[userId];
+            }
+            // 如果本地也没在共享，收起区域
+            if (!isSharing && document.querySelectorAll('.remote-video-wrapper').length === 0) {
+                document.getElementById('screenShareArea').classList.remove('active');
+            }
+        }
+
         // ========== UI 更新 ==========
         function updateUsersList(users) {
             usersList.innerHTML = '';
@@ -802,6 +1071,14 @@
         // ========== 通话控制 ==========
         document.getElementById('joinBtn').addEventListener('click', joinRoom);
         document.getElementById('leaveBtn').addEventListener('click', leaveRoom);
+
+        document.getElementById('shareBtn').addEventListener('click', () => {
+            if (isSharing) {
+                stopScreenShare();
+            } else {
+                startScreenShare();
+            }
+        });
 
         document.getElementById('muteBtn').addEventListener('click', () => {
             if (!localStream) return;

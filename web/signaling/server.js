@@ -146,6 +146,26 @@ wss.on('connection', (ws, req) => {
                     }, ws);
                     break;
 
+                // 屏幕共享信令（P2P，服务器仅透传）
+                case 'screen-offer':
+                case 'screen-answer':
+                case 'screen-ice':
+                    broadcast(currentRoom, {
+                        type: data.type,
+                        from: userId,
+                        to: data.to,
+                        payload: data.payload
+                    }, ws);
+                    break;
+
+                // 停止屏幕共享通知
+                case 'screen-stop':
+                    broadcast(currentRoom, {
+                        type: 'screen-stop',
+                        from: userId
+                    }, ws);
+                    break;
+
                 // 中继模式：音频数据
                 case 'relay-audio':
                     // 将音频数据转发给房间内的其他用户
