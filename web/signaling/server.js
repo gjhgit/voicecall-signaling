@@ -38,7 +38,11 @@ if (hasSSL) {
     console.log('⚠️  未检测到SSL证书，使用 HTTP 模式');
 }
 
-wss = new WebSocket.Server({ server });
+wss = new WebSocket.Server({ 
+    server,
+    clientTracking: true,
+    maxPayload: 1024 * 1024 // 1MB 最大消息
+});
 
 // 房间管理
 const rooms = new Map();
@@ -59,10 +63,23 @@ function getLocalIP() {
     return 'localhost';
 }
 
-// CORS 中间件
+// CORS 中间件 - Railway 需要这些 headers
 app.use((req, res, next) => {
     res.header('Access-Control-Allow-Origin', '*');
-    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Sec-WebSocket-Version, Sec-WebSocket-Key, Sec-WebSocket-Extensions');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.header('Access-Control-Allow-Credentials', 'true');
+    // Railway WebSocket 支持
+    res.header('X-Forwarded-Proto', 'https');
+    next();
+});
+
+// WebSocket 升级请求处理
+app.use((req, res, next) => {
+    if (req.headers.upgrade && req.headers.upgrade.toLowerCase() === 'websocket') {
+        res.header('Upgrade', 'websocket');
+        res.header('Connection', 'Upgrade');
+    }
     next();
 });
 

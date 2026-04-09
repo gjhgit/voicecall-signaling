@@ -469,10 +469,12 @@
             statusEl.className = 'status-text';
 
             try {
+                console.log('[WebSocket] 尝试连接:', wsUrl);
                 ws = new WebSocket(wsUrl);
                 let heartbeatTimer = null;
 
                 ws.onopen = () => {
+                    console.log('[WebSocket] 连接成功！');
                     statusEl.textContent = '已连接信令服务器';
                     statusEl.className = 'status-text connected';
                     connectionInfoEl.textContent = `✅ 连接成功: ${serverUrl}`;
@@ -518,7 +520,8 @@
                 };
 
                 ws.onerror = (error) => {
-                    console.error('WebSocket 错误:', error);
+                    console.error('[WebSocket] 连接错误:', error);
+                    connectionInfoEl.textContent = `❌ WebSocket错误，请检查控制台`;
                 };
 
                 ws.onmessage = handleMessage;
